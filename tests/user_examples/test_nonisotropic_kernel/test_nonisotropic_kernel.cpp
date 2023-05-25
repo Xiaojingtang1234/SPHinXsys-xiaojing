@@ -25,7 +25,19 @@ TEST(test_anisotropic_kernel, test_Laplacian)
  	AnisotropicKernel<Anisotropic::KernelWendlandC2>  
  	    wendland(1.15 * resolution_ref_large, scaling_vector,  Vec2d(0.0, 0.0));
  	 
+
+	Mat2d transform_tensor_ = wendland.getCoordinateTransformationTensorG(scaling_vector,  Vec2d(0.0, 0.0));
  	 	
+
+	std::cout<< transform_tensor_<< std::endl;
+
+	Real double_dot_tensor_ = transform_tensor_(0, 0)* transform_tensor_(0, 0) +  transform_tensor_(0, 1)* transform_tensor_(1, 0)+
+							 transform_tensor_(1, 0)* transform_tensor_(0, 1) +  transform_tensor_(1, 1)* transform_tensor_(1, 1) ;
+	
+	
+	std::cout<< double_dot_tensor_<< std::endl;
+
+
 	Real sum = 0.0;
 	Vec2d first_order_rate = Vec2d(0.0, 0.0);
 	Real second_order_rate =  0.0;
@@ -53,9 +65,11 @@ TEST(test_anisotropic_kernel, test_Laplacian)
 
 				first_order_rate -= (sarutration_center_y - sarutration_y)* eij_dwij_V;
 
-				second_order_rate +=  2.0 * (sarutration_center_x - sarutration_x)  
-									* displacement.dot(wendland.e(distance_, displacement))  * V_ 
-					 				* wendland.dW(distance_, displacement)  /  (distance_ + TinyReal)/ (distance_ + TinyReal); 
+				second_order_rate +=  2.0 * double_dot_tensor_* (sarutration_center_x - sarutration_x) * V_  
+					 				* wendland.dW(distance_, displacement)  / ((transform_tensor_ * displacement).norm() + TinyReal); 
+			
+			
+			
 			
 			}		
 		}
