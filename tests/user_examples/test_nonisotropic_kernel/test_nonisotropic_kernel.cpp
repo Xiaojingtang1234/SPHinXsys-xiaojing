@@ -30,13 +30,7 @@ TEST(test_anisotropic_kernel, test_Laplacian)
  	 	
 
 	std::cout<< transform_tensor_<< std::endl;
-
-	Real double_dot_tensor_ = transform_tensor_(0, 0)* transform_tensor_(0, 0) +  transform_tensor_(0, 1)* transform_tensor_(1, 0)+
-							 transform_tensor_(1, 0)* transform_tensor_(0, 1) +  transform_tensor_(1, 1)* transform_tensor_(1, 1) ;
-	
-	
-	std::cout<< double_dot_tensor_<< std::endl;
-
+  
 
 	Real sum = 0.0;
 	Vec2d first_order_rate = Vec2d(0.0, 0.0);
@@ -54,19 +48,33 @@ TEST(test_anisotropic_kernel, test_Laplacian)
 			Real  sarutration_y =  y + x ;
 			Real  sarutration_center_y =  center[1] + center[0];
 
-			Real  sarutration_x =  x * x +  y * y;
-			Real  sarutration_center_x = center[0] * center[0] + center[1] * center[1];
- 
+			Real  sarutration_x = y*y  ;
+			Real  sarutration_center_x =    center[1]*  center[1];
+		 
 			if (wendland.checkIfWithinCutOffRadius(displacement))
 			{
 				Vec2d  eij_dwij_V = wendland.e(distance_, displacement)* wendland.dW(distance_, displacement) * V_;
-		 
-				sum += wendland.W(distance_, displacement)* V_;
+
+
+				
+
+	 			sum += wendland.W(distance_, displacement)* V_;
 
 				first_order_rate -= (sarutration_center_y - sarutration_y)* eij_dwij_V;
 
-				second_order_rate +=  2.0 * double_dot_tensor_* (sarutration_center_x - sarutration_x) * V_  
-					 				* wendland.dW(distance_, displacement)  / ((transform_tensor_ * displacement).norm() + TinyReal); 
+
+               Real flag = 2.0 *  (sarutration_center_x  - sarutration_x) 
+									 *( transform_tensor_ * displacement).norm()  
+									/ (distance_  + TinyReal)  / (distance_  + TinyReal)
+					 				* V_ * wendland.dW(distance_, displacement); 
+
+				std::cout<< flag << std::endl;
+
+				second_order_rate +=  2.0 *  (sarutration_center_x  - sarutration_x) 
+									 *( transform_tensor_ * displacement).norm()  
+									/ (distance_  + TinyReal)  / (distance_  + TinyReal)
+					 				* V_ * wendland.dW(distance_, displacement); 
+				
 			
 			
 			
