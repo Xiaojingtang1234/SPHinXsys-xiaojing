@@ -204,7 +204,7 @@ class LaplacianBodyRelaxation : public LocalDynamics, public LaplacianSolidDataI
         diffusion_coeff_=  particles_->laplacian_solid_.DiffusivityCoefficient();
 
         particles_->registerVariable(neigh_, "ShowingNeigh", Real(0.0));
-        particles_->registerVariable(d_phi_, "d_phi_", Real(0.0));
+      
 
         kk = 1.0;
              
@@ -225,7 +225,6 @@ class LaplacianBodyRelaxation : public LocalDynamics, public LaplacianSolidDataI
     StdLargeVec<Vec3> Laplacian_; 
 
     Real diffusion_coeff_;
-    StdLargeVec<Real> d_phi_;
     StdLargeVec<Real> neigh_;   
      Real kk ;
  protected:
@@ -235,10 +234,10 @@ class LaplacianBodyRelaxation : public LocalDynamics, public LaplacianSolidDataI
      
     void interaction(size_t index_i, Real dt = 0.0)
     {
-        Vec2d E_rate = Vec2d::Zero();  
+       
         Vec2d &pos_n_i = pos_[index_i];   
         Neighborhood &inner_neighborhood = inner_configuration_[index_i];
-
+        Vec2d E_rate = Vec2d::Zero();  
         for (size_t n = 0; n != inner_neighborhood.current_size_; ++n) // this is ik
         {
             size_t index_k = inner_neighborhood.j_[n];
@@ -253,7 +252,6 @@ class LaplacianBodyRelaxation : public LocalDynamics, public LaplacianSolidDataI
  
         Mat3 SC_rate = Mat3::Zero();  
         Vec3 G_rate =  Vec3::Zero();
-
         for (size_t n = 0; n != inner_neighborhood.current_size_; ++n) // this is ij
         {
             size_t index_j = inner_neighborhood.j_[n];
@@ -287,6 +285,58 @@ class LaplacianBodyRelaxation : public LocalDynamics, public LaplacianSolidDataI
  
 
 
+
+
+class LaplacianBodyRelaxationCheck : public LocalDynamics, public LaplacianSolidDataInner
+{
+  public:
+    LaplacianBodyRelaxationCheck(BaseInnerRelation &inner_relation)
+     : LocalDynamics(inner_relation.getSPHBody()),  LaplacianSolidDataInner(inner_relation),
+      phi_(particles_->phi_)
+      {   
+        particles_->registerVariable(d_phi_, "d_phi_",  [&](size_t i) -> Real
+                    { return Real(0.0); });
+        diffusion_coeff_=  particles_->laplacian_solid_.DiffusivityCoefficient();
+
+      };
+
+       virtual ~LaplacianBodyRelaxationCheck (){};
+  
+protected:
+
+    StdLargeVec<Real> &phi_;
+    StdLargeVec<Real> d_phi_;
+    Real diffusion_coeff_;
+    
+    void initialization(size_t index_i, Real dt = 0.0) {};
+   
+     
+    void interaction(size_t index_i, Real dt = 0.0)
+    {
+        Real  rate_= 0.0; 
+        Neighborhood &inner_neighborhood = inner_configuration_[index_i];  
+
+        for (size_t n = 0; n != inner_neighborhood.current_size_; ++n) // this is ij
+        {
+            size_t index_j = inner_neighborhood.j_[n]; 
+            Real r_ij = inner_neighborhood.r_ij_[n];
+        	Real dw_ijV_j_ = inner_neighborhood.dW_ijV_j_[n];
+
+            rate_ +=  2.0 * (phi_[index_i] - phi_[index_j])
+                   / (r_ij + TinyReal)  * dw_ijV_j_;        
+        }
+
+        d_phi_[index_i] = diffusion_coeff_ * rate_; 
+        
+    };
+
+    void update(size_t index_i, Real dt = 0.0)
+    {    
+        phi_[index_i] += dt * d_phi_[index_i] ; 
+    };
+ };
+
+
 class DiffusionInitialCondition : public LocalDynamics, public LaplacianSolidDataInner
 {
   public:
@@ -313,7 +363,6 @@ class  GetLaplacianTimeStepSize : public LocalDynamicsReduce<Real, ReduceMin>,
 {
 protected:
     Real smoothing_length;
-	Real dimension;
 
  public:
     GetLaplacianTimeStepSize(SPHBody &sph_body)
@@ -321,13 +370,12 @@ protected:
         LaplacianSolidDataSimple(sph_body) 
         {
             smoothing_length = sph_body.sph_adaptation_->ReferenceSmoothingLength();
-			dimension =2.0;
         };
    
     Real reduce(size_t index_i, Real dt)
     {
         return  0.5 * smoothing_length * smoothing_length 
-				/ particles_->laplacian_solid_.DiffusivityCoefficient() / dimension;                 
+				/ particles_->laplacian_solid_.DiffusivityCoefficient() / Dimensions;                 
     }
 
     virtual ~GetLaplacianTimeStepSize (){}; 
@@ -373,16 +421,14 @@ int main(int ac, char *av[])
     //	Note that there may be data dependence on the constructors of these methods.
     //----------------------------------------------------------------------
 
-   InteractionDynamics<NonisotropicKernelCorrectionMatrixInner> correct_configuration(diffusion_body_inner_relation);
-   InteractionDynamics< NonisotropicKernelCorrectionMatrixInnerAC> correct_second_configuration(diffusion_body_inner_relation);
+   //InteractionDynamics<NonisotropicKernelCorrectionMatrixInner> correct_configuration(diffusion_body_inner_relation);
+   //InteractionDynamics< NonisotropicKernelCorrectionMatrixInnerAC> correct_second_configuration(diffusion_body_inner_relation);
     ReduceDynamics<GetLaplacianTimeStepSize>  get_time_step_size(diffusion_body);
-    Dynamics1Level<LaplacianBodyRelaxation, SequencedPolicy> diffusion_relaxation(diffusion_body_inner_relation);
+    Dynamics1Level<LaplacianBodyRelaxationCheck> diffusion_relaxation(diffusion_body_inner_relation);
 
    SimpleDynamics<DiffusionInitialCondition> setup_diffusion_initial_condition(diffusion_body_inner_relation);
 
    diffusion_body.addBodyStateForRecording<Real>("Phi"); 
-   diffusion_body.addBodyStateForRecording<Real>("d_phi_"); 
-   diffusion_body.addBodyStateForRecording<Real>("ShowingNeigh"); 
    diffusion_body.addBodyStateForRecording<Mat2d>("KernelCorrectionMatrix"); 
 
     //----------------------------------------------------------------------
@@ -397,8 +443,8 @@ int main(int ac, char *av[])
     //----------------------------------------------------------------------
     sph_system.initializeSystemCellLinkedLists();
     sph_system.initializeSystemConfigurations();
-    correct_configuration.exec();
-    correct_second_configuration.exec();
+    //correct_configuration.exec();
+   // correct_second_configuration.exec();
     setup_diffusion_initial_condition.exec();
     //----------------------------------------------------------------------
     //	Setup for time-stepping control
