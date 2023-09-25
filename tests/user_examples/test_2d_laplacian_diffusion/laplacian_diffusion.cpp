@@ -11,8 +11,8 @@ using namespace SPH;   // Namespace cite here
 Real L = 2.0;
 Real H = 0.4;
 
-int y_num = 80;  
-Real ratio_ = 10.0; 
+int y_num = 20;  
+Real ratio_ = 4.0; 
 Real resolution_ref = H / y_num;
 Real resolution_ref_large = ratio_ * resolution_ref; 
 int x_num = L / resolution_ref_large;    
@@ -25,7 +25,7 @@ BoundingBox system_domain_bounds(Vec2d(0.0, 0.0), Vec2d(L, H));
 //----------------------------------------------------------------------
 //	Basic parameters for material properties.
 //----------------------------------------------------------------------
-Real diffusion_coeff = 1.0e-2;
+Real diffusion_coeff = 1.0;
 Real rho0 = 1.0;
 Real youngs_modulus = 1.0; 
 Real poisson_ratio = 1.0;
@@ -91,12 +91,6 @@ class AnisotropicParticleGenerator : public ParticleGenerator
     }
 };
 
-using Vec2 = Eigen::Matrix<Real,2, 1>;
-using Vec3 = Eigen::Matrix<Real, 3, 1>;
-
-using Mat2 = Eigen::Matrix<Real, 2, 2>;
-using Mat3 = Eigen::Matrix<Real, 3, 3>;
- 
   
 class LaplacianDiffusionSolid : public LinearElasticSolid 
 {
@@ -173,11 +167,7 @@ class NonisotropicKernelCorrectionMatrixInner : public LocalDynamics, public Gen
         {
             size_t index_j = inner_neighborhood.j_[n];
             Vec2d gradW_ij = inner_neighborhood.dW_ijV_j_[n] * inner_neighborhood.e_ij_[n];
-            if (index_i == 267)
-            {
-                show_neighbor_[index_j] = 1.0;
-            };
-
+         
             Vec2d r_ji = pos_[index_i] - pos_[index_j];
             local_configuration -= r_ji * gradW_ij.transpose();
         }
@@ -213,12 +203,11 @@ class NonisotropicKernelCorrectionMatrixInnerAC : public LocalDynamics, public L
         {
             size_t index_k = inner_neighborhood.j_[n];
             Vec2d gradW_ikV_k = inner_neighborhood.dW_ijV_j_[n] * inner_neighborhood.e_ij_[n];
-            Vec2d r_ik = pos_[index_k] - pos_n_i ;
-
-            //TO DO, HOW to express two dimensional case in three elements??????? a should be calculate only once
-            A1_[index_i] += r_ik[0] * r_ik[0] * (B_[index_i].transpose() * gradW_ikV_k); // HOW TO DEFINE IT???
-            A2_[index_i] += r_ik[1] * r_ik[1] * (B_[index_i].transpose() * gradW_ikV_k); // HOW TO DEFINE IT???
-            A3_[index_i] += r_ik[0] * r_ik[1] * (B_[index_i].transpose() * gradW_ikV_k);  // HOW TO DEFINE IT???
+            Vec2d r_ik = pos_[index_k] - pos_n_i;
+          
+            A1_[index_i] += r_ik[0] * r_ik[0] * (B_[index_i].transpose() * gradW_ikV_k);  
+            A2_[index_i] += r_ik[1] * r_ik[1] * (B_[index_i].transpose() * gradW_ikV_k);  
+            A3_[index_i] += r_ik[0] * r_ik[1] * (B_[index_i].transpose() * gradW_ikV_k);  
         }
 
     };
@@ -234,14 +223,22 @@ class LaplacianBodyRelaxation : public LocalDynamics, public LaplacianSolidDataI
       pos_(particles_->pos_), B_(particles_->B_), phi_(particles_->phi_)
       , A1_(particles_->A1_), A2_(particles_->A2_), A3_(particles_->A3_) 
      {       
-        particles_->registerVariable(SC_, "FirstOrderCorrectionMatrixSC",  [&](size_t i) -> Mat3
-                    { return Eps * Mat3::Identity(); });
+        particles_->registerVariable(SC_, "FirstOrderCorrectionMatrixSC",  [&](size_t i) -> Mat3d
+                    { return Eps * Mat3d::Identity(); });
         particles_->registerVariable(E_, "FirstOrderCorrectionVectorE",  [&](size_t i) -> Vec2d
                     { return Eps * Vec2d::Identity(); });
-        particles_->registerVariable(G_, "FirstOrderCorrectionVectorG",  [&](size_t i) -> Vec3
-                    { return Eps * Vec3::Identity();  });
-        particles_->registerVariable(Laplacian_, "Laplacian",  [&](size_t i) -> Vec3
-                    { return Vec3::Zero(); });
+        particles_->registerVariable(G_, "FirstOrderCorrectionVectorG",  [&](size_t i) -> Vec3d
+                    { return Eps * Vec3d::Identity();  });
+        particles_->registerVariable(Laplacian_, "Laplacian",  [&](size_t i) -> Vec3d
+                    { return Vec3d::Zero(); });
+
+        particles_->registerVariable(Laplacian_x, "Laplacian_x", [&](size_t i) -> Real
+                    { return Real(0.0); });
+        particles_->registerVariable(Laplacian_y, "Laplacian_y", [&](size_t i) -> Real
+                    { return Real(0.0); });
+        particles_->registerVariable(Laplacian_xy, "Laplacian_xy", [&](size_t i) -> Real
+                    { return Real(0.0); });
+
         diffusion_coeff_=  particles_->laplacian_solid_.DiffusivityCoefficient();
 
   
@@ -257,10 +254,14 @@ class LaplacianBodyRelaxation : public LocalDynamics, public LaplacianSolidDataI
     StdLargeVec<Vec2d> &A2_;
     StdLargeVec<Vec2d> &A3_;
   
-    StdLargeVec<Mat3>  SC_;
+    StdLargeVec<Mat3d>  SC_;
     StdLargeVec<Vec2d> E_; 
-    StdLargeVec<Vec3>  G_;
-    StdLargeVec<Vec3> Laplacian_; 
+    StdLargeVec<Vec3d>  G_;
+    StdLargeVec<Vec3d> Laplacian_; 
+ 
+    StdLargeVec<Real> Laplacian_x; 
+    StdLargeVec<Real> Laplacian_y; 
+    StdLargeVec<Real> Laplacian_xy; 
 
     Real diffusion_coeff_;
     StdLargeVec<Real> neigh_;   
@@ -288,17 +289,17 @@ class LaplacianBodyRelaxation : public LocalDynamics, public LaplacianSolidDataI
 
 
  
-        Mat3 SC_rate = Mat3::Zero();  
-        Vec3 G_rate =  Vec3::Zero();
+        Mat3d SC_rate = Mat3d::Zero();  
+        Vec3d G_rate =  Vec3d::Zero();
         for (size_t n = 0; n != inner_neighborhood.current_size_; ++n) // this is ij
         {
             size_t index_j = inner_neighborhood.j_[n];
             Vec2d r_ij = pos_[index_j] - pos_n_i;
 
-            Vec3 S_ = Vec3(r_ij[0] * r_ij[0], r_ij[1] * r_ij[1], r_ij[0] * r_ij[1]);
+            Vec3d S_ = Vec3d(r_ij[0] * r_ij[0], r_ij[1] * r_ij[1], r_ij[0] * r_ij[1]);
             Real FF_ = 2.0 * ( phi_[index_j]- phi_[index_i] - r_ij.dot(E_[index_i]));
             //TO DO
-            Vec3 C_ = Vec3::Zero();
+            Vec3d C_ = Vec3d::Zero();
             C_[0] = (r_ij[0] * r_ij[0] - r_ij.dot(A1_[index_i]));  
             C_[1] = (r_ij[1] * r_ij[1] - r_ij.dot(A2_[index_i]));   
             C_[2] = (r_ij[0] * r_ij[1] - r_ij.dot(A3_[index_i]));  
@@ -311,6 +312,10 @@ class LaplacianBodyRelaxation : public LocalDynamics, public LaplacianSolidDataI
         G_[index_i] = G_rate;
 
        Laplacian_[index_i] = diffusion_coeff_ * SC_[index_i].inverse() * G_[index_i]; 
+
+       Laplacian_x[index_i]= Laplacian_[index_i][0];
+       Laplacian_y[index_i]= Laplacian_[index_i][1];
+       Laplacian_xy[index_i]= Laplacian_[index_i][2];
     };
 
        void update(size_t index_i, Real dt = 0.0)
@@ -382,13 +387,7 @@ class DiffusionInitialCondition : public LocalDynamics, public LaplacianSolidDat
  protected:
     void update(size_t index_i, Real dt = 0.0)
     {
-        if (pos_[index_i][0] >= 1.0 && pos_[index_i][0] <= 1.1)
-        {
-            if (pos_[index_i][1] >= 0.1 && pos_[index_i][1] <= 0.3 )
-            {
-                phi_[index_i] = 1.0;  
-            }   
-        }  
+        phi_[index_i] = sin(pos_[index_i][0]) * cos(pos_[index_i][1]);        
     };
     
 };
@@ -466,8 +465,11 @@ int main(int ac, char *av[])
     SimpleDynamics<DiffusionInitialCondition> setup_diffusion_initial_condition(diffusion_body_inner_relation);
 
     diffusion_body.addBodyStateForRecording<Real>("Phi"); 
-    diffusion_body.addBodyStateForRecording<Mat2d>("KernelCorrectionMatrix"); 
-    diffusion_body.addBodyStateForRecording<Real>("ShowingNeighbor");
+ 
+    diffusion_body.addBodyStateForRecording<Real>("Laplacian_x");
+    diffusion_body.addBodyStateForRecording<Real>("Laplacian_y");
+    diffusion_body.addBodyStateForRecording<Real>("Laplacian_xy");
+
     //----------------------------------------------------------------------
     //	Define the methods for I/O operations and observations of the simulation.
     //----------------------------------------------------------------------
@@ -513,18 +515,24 @@ int main(int ac, char *av[])
             Real relaxation_time = 0.0;
             while (relaxation_time < Observe_time)
             {
-                if (ite % 10 == 0)
+                 dt = 0.1 * scaling_factor *  get_time_step_size.exec();
+
+                if (ite < 2.0)
                 {
+                    diffusion_relaxation.exec(dt);
+                    write_states.writeToFile();
+                    
+                }
+                   if (ite % 10 == 0)
+                {
+                     
                     std::cout << "N=" << ite << " Time: "
                               << GlobalStaticVariables::physical_time_ << "	dt: "
                               << dt << "\n";
                 }
- 
-                diffusion_relaxation.exec(dt);
-
-                 
+               
                 ite++;
-                dt = 0.1 * scaling_factor *  get_time_step_size.exec();
+               
                 relaxation_time += dt;
                 integration_time += dt;
                 GlobalStaticVariables::physical_time_ += dt;
@@ -532,7 +540,7 @@ int main(int ac, char *av[])
         }
 
         TickCount t2 = TickCount::now();
-        write_states.writeToFile();
+     
         write_solid_temperature.writeToFile(ite);
         TickCount t3 = TickCount::now();
         interval += t3 - t2;
