@@ -417,9 +417,13 @@ class LaplacianBodyRelaxation : public LocalDynamics, public LaplacianSolidDataI
         {
             size_t index_j = inner_neighborhood.j_[n];
             Vec2d r_ij = pos_[index_j] - pos_n_i;
+            Vec2d gradW_ijV_j = inner_neighborhood.dW_ijV_j_[n] * inner_neighborhood.e_ij_[n];
 
             Vec3d S_ = Vec3d(r_ij[0] * r_ij[0], r_ij[1] * r_ij[1], r_ij[0] * r_ij[1]);
             Real FF_ = 2.0 * ( phi_[index_j]- phi_[index_i] - r_ij.dot(E_[index_i]));
+
+			// H_rate = (nondimensional_tensor * r_ij).dot(B_[index_i].transpose() * gradW_ijV_j) / pow((nondimensional_tensor * r_ij).norm(), 2.0);
+
             //TO DO
             Vec3d C_ = Vec3d::Zero();
             C_[0] = (r_ij[0] * r_ij[0] - r_ij.dot(A1_[index_i]));  
@@ -481,6 +485,7 @@ protected:
             Real r_ij = inner_neighborhood.r_ij_[n];
         	Real dw_ijV_j_ = inner_neighborhood.dW_ijV_j_[n];
 
+			//Note , here, dwij should be modified in kernel cpp
             rate_ +=  2.0 * (phi_[index_i] - phi_[index_j]) / (r_ij + TinyReal)  * dw_ijV_j_;   
                       
         }
@@ -661,7 +666,7 @@ int main(int ac, char *av[])
     int ite = 0;
     Real T0 = 10.0;
     Real end_time = T0;
-    Real Output_Time = 0.01 * end_time;
+    Real Output_Time = 0.1 * end_time;
     Real Observe_time = 0.1 * Output_Time;
     Real dt = 0.0;
     //----------------------------------------------------------------------
