@@ -11,8 +11,8 @@ using namespace SPH;   // Namespace cite here
 Real L = 2.0;
 Real H = 0.4;
 
-int y_num = 40;  
-Real ratio_ = 8.0; 
+int y_num = 80;  
+Real ratio_ = 10.0; 
 Real resolution_ref = H / y_num;
 Real resolution_ref_large = ratio_ * resolution_ref; 
 int x_num = L / resolution_ref_large;    
@@ -96,12 +96,7 @@ using Vec3 = Eigen::Matrix<Real, 3, 1>;
 
 using Mat2 = Eigen::Matrix<Real, 2, 2>;
 using Mat3 = Eigen::Matrix<Real, 3, 3>;
-
-Real h_  =1.15 * resolution_ref_large;
- Mat2d tensor = Mat2d({{ Real(1.0) / (h_ * scaling_vector[0]), 0.0},
-                                  {0.0, Real(1.0) / (h_ * scaling_vector[1])}}
-                                 );
-Real scale_v  = tensor.determinant();
+ 
   
 class LaplacianDiffusionSolid : public LinearElasticSolid 
 {
@@ -308,8 +303,8 @@ class LaplacianBodyRelaxation : public LocalDynamics, public LaplacianSolidDataI
             C_[1] = (r_ij[1] * r_ij[1] - r_ij.dot(A2_[index_i]));   
             C_[2] = (r_ij[0] * r_ij[1] - r_ij.dot(A3_[index_i]));  
             
-            SC_rate += S_ * C_.transpose() *scale_v* V_j; 
-            G_rate +=  S_ * FF_ * scale_v * V_j;
+            SC_rate += S_ * C_.transpose(); 
+            G_rate +=  S_ * FF_;
         }
         
         SC_[index_i] = SC_rate; 
@@ -529,7 +524,7 @@ int main(int ac, char *av[])
 
                  
                 ite++;
-                dt = scaling_factor *  get_time_step_size.exec();
+                dt = 0.1 * scaling_factor *  get_time_step_size.exec();
                 relaxation_time += dt;
                 integration_time += dt;
                 GlobalStaticVariables::physical_time_ += dt;
