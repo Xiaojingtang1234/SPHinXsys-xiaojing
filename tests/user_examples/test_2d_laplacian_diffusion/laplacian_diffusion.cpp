@@ -391,11 +391,9 @@ class LaplacianBodyRelaxation : public LocalDynamics, public LaplacianSolidDataI
  protected:
  
     void initialization(size_t index_i, Real dt = 0.0) {};
-   
-     
+        
     void interaction(size_t index_i, Real dt = 0.0)
-    {
-       
+    {    
         Vec2d &pos_n_i = pos_[index_i];   
         Neighborhood &inner_neighborhood = inner_configuration_[index_i];
         Vec2d E_rate = Vec2d::Zero();  
@@ -413,6 +411,7 @@ class LaplacianBodyRelaxation : public LocalDynamics, public LaplacianSolidDataI
  
         Mat3d SC_rate = Mat3d::Zero();  
         Vec3d G_rate =  Vec3d::Zero();
+        Real H_rate = 1.0;
         for (size_t n = 0; n != inner_neighborhood.current_size_; ++n) // this is ij
         {
             size_t index_j = inner_neighborhood.j_[n];
@@ -430,8 +429,8 @@ class LaplacianBodyRelaxation : public LocalDynamics, public LaplacianSolidDataI
             C_[1] = (r_ij[1] * r_ij[1] - r_ij.dot(A2_[index_i]));   
             C_[2] = (r_ij[0] * r_ij[1] - r_ij.dot(A3_[index_i]));  
             
-            SC_rate += S_ * C_.transpose(); 
-            G_rate +=  S_ * FF_;
+            SC_rate += S_ * H_rate *  C_.transpose(); 
+            G_rate += S_ * H_rate * FF_;
         }
         
         SC_[index_i] = SC_rate; 
