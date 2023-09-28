@@ -402,7 +402,7 @@ class LaplacianBodyRelaxation : public LocalDynamics, public LaplacianSolidDataI
             size_t index_k = inner_neighborhood.j_[n];
             Vec2d gradW_ikV_k = inner_neighborhood.dW_ijV_j_[n] * inner_neighborhood.e_ij_[n];
             
-            E_rate += (phi_[index_k] - phi_[index_i]) * (B_[index_i].transpose() * gradW_ikV_k);  // HOW TO DEFINE IT???
+            E_rate += (phi_[index_i] - phi_[index_k]) * (B_[index_i].transpose() * gradW_ikV_k);  // HOW TO DEFINE IT???
            
         }
         E_[index_i] =  E_rate;
@@ -555,7 +555,17 @@ class DiffusionInitialCondition : public LocalDynamics, public LaplacianSolidDat
  protected:
     void update(size_t index_i, Real dt = 0.0)
     {
-        phi_[index_i] = pos_[index_i][0] * pos_[index_i][0] + pos_[index_i][1] * pos_[index_i][1];        
+       /* if (pos_[index_i][0] >= 1.0 && pos_[index_i][0] <= 1.1)
+        {
+            if (pos_[index_i][1] >= 0.1 && pos_[index_i][1] <= 0.3)
+            {
+                phi_[index_i] = 1.0;
+            }
+        }   */
+
+
+		 phi_[index_i] = pos_[index_i][0]  + pos_[index_i][1] * pos_[index_i][1];        
+  
     };
     
 };
@@ -641,7 +651,7 @@ int main(int ac, char *av[])
  
     diffusion_body.addBodyStateForRecording<Real>("Laplacian_x");
     diffusion_body.addBodyStateForRecording<Real>("Laplacian_y"); 
-    //diffusion_body.addBodyStateForRecording<Mat2d>("KernelCorrectionMatrix");
+    diffusion_body.addBodyStateForRecording<Mat2d>("KernelCorrectionMatrix");
     diffusion_body.addBodyStateForRecording<Real>("Laplacian_xy");
 
     //----------------------------------------------------------------------
