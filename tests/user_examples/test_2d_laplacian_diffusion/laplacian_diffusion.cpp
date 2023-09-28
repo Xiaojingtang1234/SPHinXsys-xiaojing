@@ -12,7 +12,7 @@ Real L = 2.0;
 Real H = 0.4;
 
 int y_num = 20;  
-Real ratio_ = 1.0; 
+Real ratio_ = 4.0; 
 Real resolution_ref = H / y_num;
 Real resolution_ref_large = ratio_ * resolution_ref; 
 int x_num = L / resolution_ref_large;    
@@ -21,32 +21,49 @@ Real scaling_factor = 1.0 / ratio_;              // scaling factor to calculate 
 
 
 Real V_j = resolution_ref_large * resolution_ref;
-BoundingBox system_domain_bounds(Vec2d(0.0, 0.0), Vec2d(L, H));
+BoundingBox system_domain_bounds(Vec2d(-L, -H), Vec2d(2.0*L, 2.0*H));
+Real BL =  3.0 * resolution_ref_large;
+Real BH =   3.0 * resolution_ref;
 //----------------------------------------------------------------------
 //	Basic parameters for material properties.
 //----------------------------------------------------------------------
-Real diffusion_coeff = 1.0;
+Real diffusion_coeff = 1.0 ;
 Real rho0 = 1.0;
 Real youngs_modulus = 1.0; 
 Real poisson_ratio = 1.0;
 //----------------------------------------------------------------------
 //	Geometric shapes used in the case.
 //----------------------------------------------------------------------
+ std::vector<Vec2d> diffusion_shape
+ {Vec2d(0.0, 0.0),Vec2d(0.0, H),Vec2d(L, H),Vec2d(L, 0.0),Vec2d(0.0, 0.0) };
 class DiffusionBlock : public MultiPolygonShape
 {
   public:
     explicit DiffusionBlock(const std::string &shape_name) : MultiPolygonShape(shape_name)
     {
-        std::vector<Vec2d> shape;
-        shape.push_back(Vec2d(0.0, 0.0));
-        shape.push_back(Vec2d(0.0, H));
-        shape.push_back(Vec2d(L, H));
-        shape.push_back(Vec2d(L, 0.0));
-        shape.push_back(Vec2d(0.0, 0.0));
-        multi_polygon_.addAPolygon(shape, ShapeBooleanOps::add);
+        multi_polygon_.addAPolygon(diffusion_shape, ShapeBooleanOps::add);
     }
 };
+
+class Boundary: public MultiPolygonShape
+{
+  public:
+    explicit Boundary(const std::string &shape_name) : MultiPolygonShape(shape_name)
+    {
+        std::vector<Vec2d> boundary;
+        boundary.push_back(Vec2d(-BL, -BH));
+        boundary.push_back(Vec2d(-BL, H + BH));
+        boundary.push_back(Vec2d(L + BL, H + BH));
+        boundary.push_back(Vec2d(L + BL, -BH));
+        boundary.push_back(Vec2d(-BL, -BH));
+        multi_polygon_.addAPolygon(boundary, ShapeBooleanOps::add);
+
  
+     
+        multi_polygon_.addAPolygon(diffusion_shape, ShapeBooleanOps::sub);
+    }
+};
+
 
 //----------------------------------------------------------------------
 //	An observer particle generator.
@@ -83,9 +100,67 @@ class AnisotropicParticleGenerator : public ParticleGenerator
         {
             for (int j = 0; j < y_num; j++)
             {
-                Real x =  (i + 0.5) * resolution_ref_large;
-                Real y =  (j + 0.5) * resolution_ref;
-                initializePositionAndVolumetricMeasure(Vecd(x, y), (resolution_ref * resolution_ref_large));
+                Real x =  (i + 0.5) * resolution_ref_large  ;
+                Real y =  (j + 0.5) * resolution_ref ;
+                initializePositionAndVolumetricMeasure(Vec2d(x, y), (resolution_ref * resolution_ref_large));
+            }
+        }
+    }
+};
+
+   
+
+class AnisotropicParticleGeneratorBoundary : public ParticleGenerator
+{
+  public:
+ AnisotropicParticleGeneratorBoundary(SPHBody &sph_body) : ParticleGenerator(sph_body){};
+
+    virtual void initializeGeometricVariables() override
+    {
+        // set particles directly
+        for (int i = 0; i < 3; i++)
+        {
+            for (int j = 0; j < y_num + 6; j++)
+            {
+                Real x = -BL + (i + 0.5) * resolution_ref_large;
+                Real y = -BH + (j + 0.5) * resolution_ref ;
+                initializePositionAndVolumetricMeasure(Vec2d(x, y), (resolution_ref * resolution_ref_large));
+            }
+        }
+
+
+        // set particles directly
+        for (int i = 0; i < 3; i++)
+        {
+            for (int j = 0; j < y_num + 6; j++)
+            {
+                Real x = (x_num + i +  0.5) * resolution_ref_large;
+                Real y = -BH + (j + 0.5) * resolution_ref;
+                initializePositionAndVolumetricMeasure(Vec2d(x, y), (resolution_ref * resolution_ref_large));
+            }
+        }
+
+
+        // set particles directly
+        for (int i = 0; i < x_num; i++)
+        {
+            for (int j = 0; j < 3; j++)
+            {
+                Real x = (i + 0.5) * resolution_ref_large;
+                Real y = -BH + (j + 0.5) * resolution_ref ;
+                initializePositionAndVolumetricMeasure(Vec2d(x, y), (resolution_ref * resolution_ref_large));
+            }
+        }
+
+
+        // set particles directly
+        for (int i = 0; i < x_num; i++)
+        {
+            for (int j = 0; j < 3; j++)
+            {
+                Real x = (i + 0.5) * resolution_ref_large;
+                Real y = (y_num + j + 0.5) * resolution_ref ;
+                initializePositionAndVolumetricMeasure(Vec2d(x, y), (resolution_ref * resolution_ref_large));
             }
         }
     }
@@ -186,6 +261,47 @@ class NonisotropicKernelCorrectionMatrixInner : public LocalDynamics, public Gen
      
 };
 
+
+class NonisotropicKernelCorrectionMatrixComplex : public NonisotropicKernelCorrectionMatrixInner, public GeneralDataDelegateContactOnly
+{
+  public:
+    NonisotropicKernelCorrectionMatrixComplex(ComplexRelation &complex_relation, Real alpha = Real(0))
+    : NonisotropicKernelCorrectionMatrixInner(complex_relation.getInnerRelation(), alpha),
+      GeneralDataDelegateContactOnly(complex_relation.getContactRelation())
+      {
+        for (size_t k = 0; k != contact_particles_.size(); ++k)
+        {
+        contact_mass_.push_back(&(contact_particles_[k]->mass_));
+        contact_Vol_.push_back(&(contact_particles_[k]->Vol_));
+        }
+      };
+     
+    virtual ~NonisotropicKernelCorrectionMatrixComplex(){};
+
+  protected: 
+    StdVec<StdLargeVec<Real> *> contact_Vol_;
+    StdVec<StdLargeVec<Real> *> contact_mass_;
+
+    void interaction(size_t index_i, Real dt = 0.0)
+    {
+        NonisotropicKernelCorrectionMatrixInner::interaction(index_i, dt);
+
+        Mat2d local_configuration = ZeroData<Mat2d>::value;
+        for (size_t k = 0; k < contact_configuration_.size(); ++k)
+        {
+            Neighborhood &contact_neighborhood = (*contact_configuration_[k])[index_i];
+            for (size_t n = 0; n != contact_neighborhood.current_size_; ++n)
+            {
+                Vec2d gradW_ij = contact_neighborhood.dW_ijV_j_[n] * contact_neighborhood.e_ij_[n];
+                Vec2d r_ji = contact_neighborhood.r_ij_[n] * contact_neighborhood.e_ij_[n];
+                local_configuration -= r_ji * gradW_ij.transpose();
+             }
+        }
+
+        B_[index_i] += local_configuration;
+    };
+};
+
 class NonisotropicKernelCorrectionMatrixInnerAC : public LocalDynamics, public LaplacianSolidDataInner
 {
   public:
@@ -248,9 +364,7 @@ class LaplacianBodyRelaxation : public LocalDynamics, public LaplacianSolidDataI
                     { return Real(0.0); });
 
         diffusion_coeff_=  particles_->laplacian_solid_.DiffusivityCoefficient();
-
-  
-             
+           
      };
     virtual ~LaplacianBodyRelaxation (){};
 
@@ -262,9 +376,9 @@ class LaplacianBodyRelaxation : public LocalDynamics, public LaplacianSolidDataI
     StdLargeVec<Vec2d> &A2_;
     StdLargeVec<Vec2d> &A3_;
   
-    StdLargeVec<Mat3d>  SC_;
+    StdLargeVec<Mat3d> SC_;
     StdLargeVec<Vec2d> E_; 
-    StdLargeVec<Vec3d>  G_;
+    StdLargeVec<Vec3d> G_;
     StdLargeVec<Vec3d> Laplacian_; 
  
     StdLargeVec<Real> Laplacian_x; 
@@ -293,7 +407,7 @@ class LaplacianBodyRelaxation : public LocalDynamics, public LaplacianSolidDataI
             E_rate += (phi_[index_k] - phi_[index_i]) * (B_[index_i].transpose() * gradW_ikV_k);  // HOW TO DEFINE IT???
            
         }
-        E_[index_i] =  E_rate ;
+        E_[index_i] =  E_rate;
 
 
  
@@ -381,9 +495,6 @@ protected:
     };
  };
 
-
-
-
 class GradientCheck : public LocalDynamics, public LaplacianSolidDataInner
 {
   public:
@@ -415,7 +526,7 @@ protected:
             size_t index_j = inner_neighborhood.j_[n]; 
             Vec2d gradW_ijV_j = inner_neighborhood.dW_ijV_j_[n] * inner_neighborhood.e_ij_[n];
             
-            rate_ += (phi_[index_i] - phi_[index_j]) * (B_[index_i].transpose() * gradW_ijV_j);                       
+            rate_ += (phi_[index_j] - phi_[index_i]) * (B_[index_i].transpose() * gradW_ijV_j);                       
         }
 
         Gradient_x[index_i] =  rate_[0]; 
@@ -426,8 +537,6 @@ protected:
     void update(size_t index_i, Real dt = 0.0){ };  
        
  };
-
-
 
 class DiffusionInitialCondition : public LocalDynamics, public LaplacianSolidDataInner
 {
@@ -487,11 +596,15 @@ int main(int ac, char *av[])
     //	Creating body, materials and particles.
     //----------------------------------------------------------------------
     SolidBody diffusion_body(sph_system, makeShared<DiffusionBlock>("DiffusionBlock"));
-
     diffusion_body.sph_adaptation_->resetKernel<AnisotropicKernel<KernelWendlandC2>>(scaling_vector);
-   
     diffusion_body.defineParticlesAndMaterial<LaplacianDiffusionParticles, LaplacianDiffusionSolid>(rho0, diffusion_coeff, youngs_modulus, poisson_ratio);    
     diffusion_body.generateParticles<AnisotropicParticleGenerator>();
+
+    SolidBody boundary_body(sph_system, makeShared<Boundary>("Boundary"));
+    boundary_body.sph_adaptation_->resetKernel<AnisotropicKernel<KernelWendlandC2>>(scaling_vector);
+    boundary_body.defineParticlesAndMaterial<SolidParticles, Solid>();  
+    boundary_body.generateParticles<AnisotropicParticleGeneratorBoundary>();
+
     //----------------------------------------------------------------------
     //	Particle and body creation of fluid observers.
     //----------------------------------------------------------------------
@@ -507,12 +620,13 @@ int main(int ac, char *av[])
     //----------------------------------------------------------------------
     InnerRelation diffusion_body_inner_relation(diffusion_body);
     ContactRelation temperature_observer_contact(temperature_observer, {&diffusion_body});
+    ComplexRelation diffusion_block_complex(diffusion_body, {&boundary_body});
     //----------------------------------------------------------------------
     //	Define the main numerical methods used in the simulation.
     //	Note that there may be data dependence on the constructors of these methods.
     //----------------------------------------------------------------------
 
-   InteractionWithUpdate<NonisotropicKernelCorrectionMatrixInner> correct_configuration(diffusion_body_inner_relation);  
+   InteractionWithUpdate<NonisotropicKernelCorrectionMatrixComplex> correct_configuration(diffusion_block_complex);  
    InteractionDynamics< NonisotropicKernelCorrectionMatrixInnerAC> correct_second_configuration(diffusion_body_inner_relation);
     ReduceDynamics<GetLaplacianTimeStepSize>  get_time_step_size(diffusion_body);
     Dynamics1Level<LaplacianBodyRelaxation> diffusion_relaxation(diffusion_body_inner_relation);
@@ -545,7 +659,7 @@ int main(int ac, char *av[])
     //	Setup for time-stepping control
     //----------------------------------------------------------------------
     int ite = 0;
-    Real T0 = 1.0;
+    Real T0 = 10.0;
     Real end_time = T0;
     Real Output_Time = 0.01 * end_time;
     Real Observe_time = 0.1 * Output_Time;
@@ -571,17 +685,15 @@ int main(int ac, char *av[])
             Real relaxation_time = 0.0;
             while (relaxation_time < Observe_time)
             {
-                 dt = 0.1 * scaling_factor *  get_time_step_size.exec();
+                 dt = scaling_factor *  get_time_step_size.exec();
 
-                if (ite < 2.0)
-                {
-                    diffusion_relaxation.exec(dt);
-                    write_states.writeToFile();
+                //if (ite < 2.0)
+                 //{
+                    diffusion_relaxation.exec(dt);  
                     
-                }
-                   if (ite % 10 == 0)
-                {
-                     
+               // }
+                   if (ite % 100 == 0)
+                {                  
                     std::cout << "N=" << ite << " Time: "
                               << GlobalStaticVariables::physical_time_ << "	dt: "
                               << dt << "\n";
@@ -596,7 +708,7 @@ int main(int ac, char *av[])
         }
 
         TickCount t2 = TickCount::now();
-     
+        write_states.writeToFile();
         write_solid_temperature.writeToFile(ite);
         TickCount t3 = TickCount::now();
         interval += t3 - t2;
