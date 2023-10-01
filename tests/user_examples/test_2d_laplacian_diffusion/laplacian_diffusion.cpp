@@ -11,8 +11,8 @@ using namespace SPH;   // Namespace cite here
 Real L = 2.0;
 Real H = 0.4;
 
-int y_num = 20;  
-Real ratio_ = 4.0; 
+int y_num = 80;  
+Real ratio_ = 1.0; 
 Real resolution_ref = H / y_num;
 Real resolution_ref_large = ratio_ * resolution_ref; 
 int x_num = L / resolution_ref_large;    
@@ -27,7 +27,7 @@ Real BH =   3.0 * resolution_ref;
 //----------------------------------------------------------------------
 //	Basic parameters for material properties.
 //----------------------------------------------------------------------
-Real diffusion_coeff = 1.0 ;
+Real diffusion_coeff = 0.01;
 Real rho0 = 1.0;
 Real youngs_modulus = 1.0; 
 Real poisson_ratio = 1.0;
@@ -100,7 +100,7 @@ class AnisotropicParticleGenerator : public ParticleGenerator
         {
             for (int j = 0; j < y_num; j++)
             {
-                Real x =  (i + 0.5) * resolution_ref_large  ;
+                Real x =  (i + 0.5) * resolution_ref_large;
                 Real y =  (j + 0.5) * resolution_ref ;
                 initializePositionAndVolumetricMeasure(Vec2d(x, y), (resolution_ref * resolution_ref_large));
             }
@@ -411,7 +411,7 @@ class LaplacianBodyRelaxation : public LocalDynamics, public LaplacianSolidDataI
  
         Mat3d SC_rate = Mat3d::Zero();  
         Vec3d G_rate =  Vec3d::Zero();
-        Real H_rate = 1.0;
+      
         for (size_t n = 0; n != inner_neighborhood.current_size_; ++n) // this is ij
         {
             size_t index_j = inner_neighborhood.j_[n];
@@ -421,16 +421,15 @@ class LaplacianBodyRelaxation : public LocalDynamics, public LaplacianSolidDataI
             Vec3d S_ = Vec3d(r_ij[0] * r_ij[0], r_ij[1] * r_ij[1], r_ij[0] * r_ij[1]);
             Real FF_ = 2.0 * ( phi_[index_j]- phi_[index_i] - r_ij.dot(E_[index_i]));
 
-			// H_rate = (nondimensional_tensor * r_ij).dot(B_[index_i].transpose() * gradW_ijV_j) / pow((nondimensional_tensor * r_ij).norm(), 2.0);
-
+			 
             //TO DO
             Vec3d C_ = Vec3d::Zero();
             C_[0] = (r_ij[0] * r_ij[0] - r_ij.dot(A1_[index_i]));  
             C_[1] = (r_ij[1] * r_ij[1] - r_ij.dot(A2_[index_i]));   
             C_[2] = (r_ij[0] * r_ij[1] - r_ij.dot(A3_[index_i]));  
             
-            SC_rate += S_ * H_rate *  C_.transpose(); 
-            G_rate += S_ * H_rate * FF_;
+            SC_rate += S_ *  C_.transpose(); 
+            G_rate += S_  * FF_;
         }
         
         SC_[index_i] = SC_rate; 
@@ -555,16 +554,16 @@ class DiffusionInitialCondition : public LocalDynamics, public LaplacianSolidDat
  protected:
     void update(size_t index_i, Real dt = 0.0)
     {
-       /* if (pos_[index_i][0] >= 1.0 && pos_[index_i][0] <= 1.1)
+        if (pos_[index_i][0] >= 1.0 && pos_[index_i][0] <= 1.1)
         {
             if (pos_[index_i][1] >= 0.1 && pos_[index_i][1] <= 0.3)
             {
                 phi_[index_i] = 1.0;
             }
-        }   */
+        }   
 
 
-		 phi_[index_i] = pos_[index_i][0]  + pos_[index_i][1] * pos_[index_i][1];        
+		// phi_[index_i] = pos_[index_i][0] * pos_[index_i][0] + pos_[index_i][1] * pos_[index_i][1];        
   
     };
     
@@ -673,7 +672,7 @@ int main(int ac, char *av[])
     //	Setup for time-stepping control
     //----------------------------------------------------------------------
     int ite = 0;
-    Real T0 = 10.0;
+    Real T0 = 100.0;
     Real end_time = T0;
     Real Output_Time = 0.1 * end_time;
     Real Observe_time = 0.1 * Output_Time;
@@ -703,10 +702,10 @@ int main(int ac, char *av[])
 
                 //if (ite < 2.0)
                  //{
-                    diffusion_relaxation.exec(dt);  
+                    diffusion_relaxation.exec(dt);    
                     
                // }
-                   if (ite % 100 == 0)
+                   if (ite % 10000 == 0)
                 {                  
                     std::cout << "N=" << ite << " Time: "
                               << GlobalStaticVariables::physical_time_ << "	dt: "
