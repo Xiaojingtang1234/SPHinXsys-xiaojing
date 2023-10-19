@@ -20,6 +20,7 @@ void Neighborhood::removeANeighbor(size_t neighbor_n)
     dW_ijV_j_[neighbor_n] = dW_ijV_j_[current_size_];
     r_ij_[neighbor_n] = r_ij_[current_size_];
     e_ij_[neighbor_n] = e_ij_[current_size_];
+    r_ij_vector_[neighbor_n] = r_ij_vector_[current_size_];
 }
 //=================================================================================================//
 void NeighborBuilder::createNeighbor(Neighborhood &neighborhood, const Real &distance,
@@ -29,6 +30,7 @@ void NeighborBuilder::createNeighbor(Neighborhood &neighborhood, const Real &dis
     neighborhood.W_ij_.push_back(kernel_->W(distance, displacement));
     neighborhood.dW_ijV_j_.push_back(kernel_->dW(distance, displacement) * Vol_j);
     neighborhood.r_ij_.push_back(distance);
+    neighborhood.r_ij_vector_.push_back(displacement);
     neighborhood.e_ij_.push_back(kernel_->e(distance, displacement));
     neighborhood.allocated_size_++;
 }
@@ -41,6 +43,7 @@ void NeighborBuilder::initializeNeighbor(Neighborhood &neighborhood, const Real 
     neighborhood.W_ij_[current_size] = kernel_->W(distance, displacement);
     neighborhood.dW_ijV_j_[current_size] = kernel_->dW(distance, displacement) * Vol_j;
     neighborhood.r_ij_[current_size] = distance;
+    neighborhood.r_ij_vector_[current_size] = displacement;
     neighborhood.e_ij_[current_size] = kernel_->e(distance, displacement);
 }
 //=================================================================================================//
@@ -155,7 +158,7 @@ void NeighborBuilderContact::operator()(Neighborhood &neighborhood,
     size_t index_j = std::get<0>(list_data_j);
     Vecd displacement = pos_i - std::get<1>(list_data_j);
     Real distance = displacement.norm();
-    if (distance < kernel_->CutOffRadius())
+    if (kernel_->checkIfWithinCutOffRadius(displacement) && index_i != index_j)
     {
         neighborhood.current_size_ >= neighborhood.allocated_size_
             ? createNeighbor(neighborhood, distance, displacement, index_j, std::get<2>(list_data_j))
