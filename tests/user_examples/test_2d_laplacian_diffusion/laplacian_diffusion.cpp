@@ -193,6 +193,10 @@ class LaplacianDiffusionParticles : public ElasticSolidParticles
         registerVariable(A1_, "FirstOrderCorrectionVectorA1", [&](size_t i) -> Vec2d { return Eps * Vec2d::Identity(); });
         registerVariable(A2_, "FirstOrderCorrectionVectorA2", [&](size_t i) -> Vec2d { return Eps * Vec2d::Identity(); });
         registerVariable(A3_, "FirstOrderCorrectionVectorA3", [&](size_t i) -> Vec2d { return Eps * Vec2d::Identity(); });
+	
+        addVariableToWrite<Vec2d>("FirstOrderCorrectionVectorA1");
+        addVariableToWrite<Vec2d>("FirstOrderCorrectionVectorA2");
+        addVariableToWrite<Vec2d>("FirstOrderCorrectionVectorA3");
     };
 
     StdLargeVec<Real> phi_;
@@ -331,7 +335,7 @@ class NonisotropicKernelCorrectionMatrixComplexAC : public NonisotropicKernelCor
             Neighborhood &contact_neighborhood = (*contact_configuration_[k])[index_i];
             for (size_t n = 0; n != contact_neighborhood.current_size_; ++n)
             {
-                Vec2d r_ik = contact_neighborhood.r_ij_vector_[n];
+                Vec2d r_ik = -contact_neighborhood.r_ij_vector_[n];
                 Vec2d gradW_ikV_k = contact_neighborhood.dW_ijV_j_[n] * contact_neighborhood.e_ij_[n];
 
                 A1_[index_i] += r_ik[0] * r_ik[0] * (B_[index_i].transpose() * gradW_ikV_k);
@@ -357,7 +361,8 @@ class LaplacianBodyRelaxation : public LocalDynamics, public LaplacianSolidDataI
         particles_->registerVariable(Laplacian_x, "Laplacian_x", [&](size_t i) -> Real { return Real(0.0); });
         particles_->registerVariable(Laplacian_y, "Laplacian_y", [&](size_t i) -> Real { return Real(0.0); });
         particles_->registerVariable(Laplacian_xy, "Laplacian_xy", [&](size_t i) -> Real { return Real(0.0); });
-
+		particles_->registerVariable(diffusion_dt_, "diffusion_dt", [&](size_t i) -> Real { return Real(0.0); });
+		
         diffusion_coeff_ = particles_->laplacian_solid_.DiffusivityCoefficient();
     };
     virtual ~LaplacianBodyRelaxation(){};
@@ -373,7 +378,7 @@ class LaplacianBodyRelaxation : public LocalDynamics, public LaplacianSolidDataI
     StdLargeVec<Vec3d> G_;
     StdLargeVec<Vec3d> Laplacian_;
 
-    StdLargeVec<Real> Laplacian_x, Laplacian_y, Laplacian_xy;
+    StdLargeVec<Real> Laplacian_x, Laplacian_y, Laplacian_xy, diffusion_dt_;
 
     Real diffusion_coeff_;
 
@@ -403,16 +408,19 @@ class LaplacianBodyRelaxation : public LocalDynamics, public LaplacianSolidDataI
             Vec2d r_ij = pos_[index_j] - pos_n_i;
             Vec2d gradW_ijV_j = inner_neighborhood.dW_ijV_j_[n] * inner_neighborhood.e_ij_[n];
 
-            Vec3d S_ = Vec3d(r_ij[0] * r_ij[0], r_ij[1] * r_ij[1], r_ij[0] * r_ij[1]);
+            Vec2d transdorm_r_ij =   r_ij;
+
+           
+            Vec3d S_ = Vec3d(transdorm_r_ij[0] * transdorm_r_ij[0], transdorm_r_ij[1] * transdorm_r_ij[1], transdorm_r_ij[0] * transdorm_r_ij[1]);
             Real FF_ = 2.0 * (phi_[index_j] - phi_[index_i] - r_ij.dot(E_[index_i]));
-           // H_rate = (  r_ij).dot(B_[index_i].transpose() * gradW_ijV_j) 
-			//	/ pow((  r_ij).norm(), 4.0);
+             H_rate = (  r_ij).dot(B_[index_i].transpose() * gradW_ijV_j) 
+			 	/ pow((  r_ij).norm(), 4.0);
 
             //TO DO
             Vec3d C_ = Vec3d::Zero();
-            C_[0] = (r_ij[0] * r_ij[0] - r_ij.dot(A1_[index_i]));
-            C_[1] = (r_ij[1] * r_ij[1] - r_ij.dot(A2_[index_i]));
-            C_[2] = (r_ij[0] * r_ij[1] - r_ij.dot(A3_[index_i]));
+            C_[0] = (r_ij[0] * r_ij[0]);
+            C_[1] = (r_ij[1] * r_ij[1]);
+            C_[2] = (r_ij[0] * r_ij[1]);
 
             SC_rate += S_ * H_rate * C_.transpose();
             G_rate += S_ * H_rate * FF_;
@@ -426,6 +434,7 @@ class LaplacianBodyRelaxation : public LocalDynamics, public LaplacianSolidDataI
         Laplacian_x[index_i] = Laplacian_[index_i][0];
         Laplacian_y[index_i] = Laplacian_[index_i][1];
         Laplacian_xy[index_i] = Laplacian_[index_i][2];
+		diffusion_dt_[index_i] = Laplacian_[index_i][0] + Laplacian_[index_i][1];
     };
 
     void update(size_t index_i, Real dt = 0.0)
@@ -617,10 +626,15 @@ int main(int ac, char *av[])
     diffusion_body.addBodyStateForRecording<Real>("Laplacian_x");
     diffusion_body.addBodyStateForRecording<Real>("Laplacian_y");
     diffusion_body.addBodyStateForRecording<Mat2d>("KernelCorrectionMatrix");
-    diffusion_body.addBodyStateForRecording<Real>("Laplacian_xy");
+	diffusion_body.addBodyStateForRecording<Real>("Laplacian_xy");
+	diffusion_body.addBodyStateForRecording<Real>("diffusion_dt");
 
+    diffusion_body.addBodyStateForRecording<Vec2d>("FirstOrderCorrectionVectorE");
+	
     // diffusion_body.addBodyStateForRecording<Real>("ShowingNeighbor");
     // boundary_body.addBodyStateForRecording<Real>("ShowingNeighbor");
+
+	PeriodicConditionUsingCellLinkedList periodic_condition_y(diffusion_body, diffusion_body.getBodyShapeBounds(), yAxis);
 
     //----------------------------------------------------------------------
     //	Define the methods for I/O operations and observations of the simulation.
@@ -633,6 +647,7 @@ int main(int ac, char *av[])
     //	and case specified initial condition if necessary.
     //----------------------------------------------------------------------
     sph_system.initializeSystemCellLinkedLists();
+	periodic_condition_y.update_cell_linked_list_.exec();
     sph_system.initializeSystemConfigurations();
     correct_configuration.exec();
     correct_second_configuration.exec();
@@ -640,7 +655,7 @@ int main(int ac, char *av[])
     //----------------------------------------------------------------------
     //	Setup for time-stepping control
     //----------------------------------------------------------------------
-    int ite = 0;
+    int ite = 1;
     Real T0 = 10.0;
     Real end_time = T0;
     Real Output_Time = 0.1 * end_time;
@@ -670,9 +685,9 @@ int main(int ac, char *av[])
             {
                 dt = 0.1*scaling_factor * get_time_step_size.exec();
                 diffusion_relaxation.exec(dt);
-                if (ite < 2.0)
+                if (ite < 3.0)
                 {
-                    write_states.writeToFile();
+                    write_states.writeToFile(ite);
                 }
                 if (ite % 10000 == 0)
                 {
