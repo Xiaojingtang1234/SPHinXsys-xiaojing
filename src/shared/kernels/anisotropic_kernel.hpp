@@ -34,14 +34,14 @@ template <class KernelType>
 Vec2d AnisotropicKernel<KernelType>::e(const Real &distance, const Vec2d &displacement) const
 {
     Vec2d transformed_displacement_ = this->h_ * transformed_tensor_2d_ * displacement;
-    return transformed_tensor_2d_ * transformed_displacement_ / ((transformed_displacement_).norm() + TinyReal);
+    return transformed_tensor_2d_ * transformed_displacement_ / ((transformed_tensor_2d_ * transformed_displacement_).norm() + TinyReal);
 }
 //=========================================================================================//
 template <class KernelType>
 Vec3d AnisotropicKernel<KernelType>::e(const Real &r_ij, const Vec3d &displacement) const
 {
     Vec3d transformed_displacement_ = this->h_ * transformed_tensor_3d_ * displacement;
-    return transformed_tensor_3d_ * transformed_displacement_ / ((transformed_displacement_).norm() + TinyReal);
+    return transformed_tensor_3d_ * transformed_displacement_ / ((transformed_tensor_3d_ * transformed_displacement_).norm() + TinyReal);
 }
 //=========================================================================================//
 template <class KernelType>
@@ -101,7 +101,8 @@ Real AnisotropicKernel<KernelType>::dW(const Real &r_ij, const Vec2d &displaceme
 {
     Vec2d transformed_displacement = transformed_tensor_2d_ * displacement;
     Real q = transformed_displacement.norm();
-    return this->factor_dW_2D_ * this->dW_2D(q);
+    Real tensor_factor_2d = (transformed_tensor_2d_ * transformed_displacement).norm() / transformed_displacement.norm();
+    return this->factor_dW_2D_ * tensor_factor_2d * this->dW_2D(q);
 }
 //=========================================================================================//
 template <class KernelType>
@@ -109,7 +110,8 @@ Real AnisotropicKernel<KernelType>::dW(const Real &r_ij, const Vec3d &displaceme
 {
     Vec3d transformed_displacement = transformed_tensor_3d_ * displacement;
     Real q = transformed_displacement.norm();
-    return this->factor_dW_3D_ * this->dW_3D(q);
+    Real tensor_factor_3d = (transformed_tensor_3d_ * transformed_displacement).norm() / transformed_displacement.norm();
+    return this->factor_dW_3D_ * tensor_factor_3d * this->dW_3D(q);
 }
 //=========================================================================================//
 template <class KernelType>
