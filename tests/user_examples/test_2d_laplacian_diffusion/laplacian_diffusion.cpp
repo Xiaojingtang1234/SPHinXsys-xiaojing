@@ -11,7 +11,7 @@ using namespace SPH;   // Namespace cite here
 Real L = 2.0;
 Real H = 0.4;
 
-int y_num = 20;
+int y_num = 80;
 Real ratio_ = 4.0;
 Real resolution_ref = H / y_num;
 Real resolution_ref_large = ratio_ * resolution_ref;
@@ -208,6 +208,8 @@ class LaplacianDiffusionParticles : public ElasticSolidParticles
 typedef DataDelegateSimple<LaplacianDiffusionParticles> LaplacianSolidDataSimple;
 typedef DataDelegateInner<LaplacianDiffusionParticles> LaplacianSolidDataInner;
 typedef DataDelegateContact<LaplacianDiffusionParticles, BaseParticles, DataDelegateEmptyBase> LaplacianSolidDataContactOnly;
+typedef DataDelegateComplex<LaplacianDiffusionParticles, BaseParticles> LaplacianSolidDataCOmplex;
+
 
 class NonisotropicKernelCorrectionMatrixInner : public LocalDynamics, public GeneralDataDelegateInner
 {
@@ -234,10 +236,9 @@ class NonisotropicKernelCorrectionMatrixInner : public LocalDynamics, public Gen
         const Neighborhood &inner_neighborhood = inner_configuration_[index_i];
         for (size_t n = 0; n != inner_neighborhood.current_size_; ++n)
         {
-            size_t index_j = inner_neighborhood.j_[n];
-            Vec2d gradW_ij = inner_neighborhood.dW_ijV_j_[n] * inner_neighborhood.e_ij_[n];
+             Vec2d gradW_ij = inner_neighborhood.dW_ijV_j_[n] * inner_neighborhood.e_ij_[n];
 
-            Vec2d r_ji = pos_[index_i] - pos_[index_j];
+            Vec2d r_ji = inner_neighborhood.r_ij_vector_[n];
             local_configuration -= r_ji * gradW_ij.transpose();
         }
         B_[index_i] = local_configuration;
@@ -284,53 +285,38 @@ class NonisotropicKernelCorrectionMatrixComplex : public NonisotropicKernelCorre
     };
 };
 
-class NonisotropicKernelCorrectionMatrixInnerAC : public LocalDynamics, public LaplacianSolidDataInner
+
+
+class NonisotropicKernelCorrectionMatrixComplexAC : public LocalDynamics, public LaplacianSolidDataCOmplex
 {
   public:
-    NonisotropicKernelCorrectionMatrixInnerAC(BaseInnerRelation &inner_relation)
-        : LocalDynamics(inner_relation.getSPHBody()),
-          LaplacianSolidDataInner(inner_relation), pos_(particles_->pos_), B_(particles_->B_), A1_(particles_->A1_), A2_(particles_->A2_), A3_(particles_->A3_){};
+    NonisotropicKernelCorrectionMatrixComplexAC(ComplexRelation &complex_relation): 
+                LocalDynamics(complex_relation.getInnerRelation().getSPHBody()), LaplacianSolidDataCOmplex(complex_relation),
+                 B_(particles_->B_), A1_(particles_->A1_), A2_(particles_->A2_), A3_(particles_->A3_) {};
 
-    virtual ~NonisotropicKernelCorrectionMatrixInnerAC(){};
+    virtual ~NonisotropicKernelCorrectionMatrixComplexAC(){};
 
   protected:
-    StdLargeVec<Vec2d> &pos_;
     StdLargeVec<Mat2d> &B_;
     StdLargeVec<Vec2d> &A1_,&A2_,&A3_;
 
-
-    void interaction(size_t index_i, Real dt = 0.0)
+    void initiation(size_t index_i, Real dt = 0.0)
     {
-        Vec2d &pos_n_i = pos_[index_i];
         Neighborhood &inner_neighborhood = inner_configuration_[index_i];
         for (size_t n = 0; n != inner_neighborhood.current_size_; ++n) // this is ik
         {
-            size_t index_k = inner_neighborhood.j_[n];
             Vec2d gradW_ikV_k = inner_neighborhood.dW_ijV_j_[n] * inner_neighborhood.e_ij_[n];
-            Vec2d r_ik = pos_[index_k] - pos_n_i;
+            Vec2d r_ik = -inner_neighborhood.r_ij_vector_[n];
 
             A1_[index_i] += r_ik[0] * r_ik[0] * (B_[index_i].transpose() * gradW_ikV_k);
             A2_[index_i] += r_ik[1] * r_ik[1] * (B_[index_i].transpose() * gradW_ikV_k);
             A3_[index_i] += r_ik[0] * r_ik[1] * (B_[index_i].transpose() * gradW_ikV_k);
         }
     };
-};
-
-class NonisotropicKernelCorrectionMatrixComplexAC : public NonisotropicKernelCorrectionMatrixInnerAC, public LaplacianSolidDataContactOnly
-{
-  public:
-    NonisotropicKernelCorrectionMatrixComplexAC(ComplexRelation &complex_relation)
-        : NonisotropicKernelCorrectionMatrixInnerAC(complex_relation.getInnerRelation()),
-          LaplacianSolidDataContactOnly(complex_relation.getContactRelation()) { };
-  
-  protected:
-    virtual ~NonisotropicKernelCorrectionMatrixComplexAC(){};
 
     void interaction(size_t index_i, Real dt = 0.0)
     {
-        NonisotropicKernelCorrectionMatrixInnerAC::interaction(index_i, dt);
-
-        for (size_t k = 0; k < contact_configuration_.size(); ++k)
+         for (size_t k = 0; k < contact_configuration_.size(); ++k)
         {
             Neighborhood &contact_neighborhood = (*contact_configuration_[k])[index_i];
             for (size_t n = 0; n != contact_neighborhood.current_size_; ++n)
@@ -343,14 +329,19 @@ class NonisotropicKernelCorrectionMatrixComplexAC : public NonisotropicKernelCor
                 A3_[index_i] += r_ik[0] * r_ik[1] * (B_[index_i].transpose() * gradW_ikV_k);
             }
         }
+
     };
+
+
 };
 
-class LaplacianBodyRelaxation : public LocalDynamics, public LaplacianSolidDataInner
+
+ 
+class LaplacianBodyRelaxation : public LocalDynamics, public LaplacianSolidDataCOmplex
 {
   public:
-    LaplacianBodyRelaxation(BaseInnerRelation &inner_relation)
-        : LocalDynamics(inner_relation.getSPHBody()), LaplacianSolidDataInner(inner_relation),
+    LaplacianBodyRelaxation(ComplexRelation &complex_relation): 
+                LocalDynamics(complex_relation.getInnerRelation().getSPHBody()), LaplacianSolidDataCOmplex(complex_relation),
           pos_(particles_->pos_), B_(particles_->B_), phi_(particles_->phi_), A1_(particles_->A1_), A2_(particles_->A2_), A3_(particles_->A3_)
     {
         particles_->registerVariable(SC_, "FirstOrderCorrectionMatrixSC", [&](size_t i) -> Mat3d { return Eps * Mat3d::Identity(); });
@@ -383,11 +374,9 @@ class LaplacianBodyRelaxation : public LocalDynamics, public LaplacianSolidDataI
     Real diffusion_coeff_;
 
   protected:
-    void initialization(size_t index_i, Real dt = 0.0){};
+    void initialization(size_t index_i, Real dt = 0.0)
+    {   
 
-    void interaction(size_t index_i, Real dt = 0.0)
-    {
-        Vec2d &pos_n_i = pos_[index_i];
         Neighborhood &inner_neighborhood = inner_configuration_[index_i];
         Vec2d E_rate = Vec2d::Zero();
         for (size_t n = 0; n != inner_neighborhood.current_size_; ++n) // this is ik
@@ -399,35 +388,71 @@ class LaplacianBodyRelaxation : public LocalDynamics, public LaplacianSolidDataI
         }
         E_[index_i] = E_rate;
 
-        Mat3d SC_rate = Mat3d::Zero();
+         
         Vec3d G_rate = Vec3d::Zero();
+        Mat3d SC_rate = Mat3d::Zero();
         Real H_rate = 1.0;
-        for (size_t n = 0; n != inner_neighborhood.current_size_; ++n) // this is ij
+         for (size_t n = 0; n != inner_neighborhood.current_size_; ++n) // this is ik
         {
+            
             size_t index_j = inner_neighborhood.j_[n];
-            Vec2d r_ij = pos_[index_j] - pos_n_i;
+            Vec2d r_ij = -inner_neighborhood.r_ij_vector_[n];
             Vec2d gradW_ijV_j = inner_neighborhood.dW_ijV_j_[n] * inner_neighborhood.e_ij_[n];
-
-            Vec2d transdorm_r_ij =   r_ij;
-
-           
-            Vec3d S_ = Vec3d(transdorm_r_ij[0] * transdorm_r_ij[0], transdorm_r_ij[1] * transdorm_r_ij[1], transdorm_r_ij[0] * transdorm_r_ij[1]);
+            Vec3d S_ = Vec3d(r_ij[0] * r_ij[0], r_ij[1] * r_ij[1], r_ij[0] * r_ij[1]);
+            H_rate = r_ij.dot(B_[index_i].transpose() * gradW_ijV_j) / pow(r_ij.norm(), 4.0);
+			 
             Real FF_ = 2.0 * (phi_[index_j] - phi_[index_i] - r_ij.dot(E_[index_i]));
-             H_rate = (  r_ij).dot(B_[index_i].transpose() * gradW_ijV_j) 
-			 	/ pow((  r_ij).norm(), 4.0);
-
-            //TO DO
+            G_rate += S_ *H_rate * FF_;
+            
+             //TO DO
             Vec3d C_ = Vec3d::Zero();
             C_[0] = (r_ij[0] * r_ij[0]);
             C_[1] = (r_ij[1] * r_ij[1]);
             C_[2] = (r_ij[0] * r_ij[1]);
+            SC_rate += S_ *H_rate* C_.transpose();   
 
-            SC_rate += S_ * H_rate * C_.transpose();
-            G_rate += S_ * H_rate * FF_;
+        }
+        
+        G_[index_i] = G_rate;
+        SC_[index_i] = SC_rate;
+        
+    
+    };
+
+    void interaction(size_t index_i, Real dt = 0.0)
+    {
+     
+
+        Mat3d SC_rate_contact = Mat3d::Zero();
+        Vec3d G_rate_contact = Vec3d::Zero();
+        Real H_rate_contact = 1.0;
+         for (size_t k = 0; k < contact_configuration_.size(); ++k)
+        {
+            Neighborhood &contact_neighborhood = (*contact_configuration_[k])[index_i];
+            for (size_t n = 0; n != contact_neighborhood.current_size_; ++n)
+            {
+                Vec2d r_ij = -contact_neighborhood.r_ij_vector_[n];
+                Vec2d gradW_ijV_j = contact_neighborhood.dW_ijV_j_[n] * contact_neighborhood.e_ij_[n];
+
+            
+                Vec3d S_ = Vec3d(r_ij[0] * r_ij[0], r_ij[1] * r_ij[1], r_ij[0] * r_ij[1]);
+                Real FF_ = 2.0 * (0.0 - r_ij.dot(E_[index_i]));
+                H_rate_contact = r_ij.dot(B_[index_i].transpose() * gradW_ijV_j) / pow(r_ij.norm(), 4.0);
+		
+                //TO DO
+                Vec3d C_ = Vec3d::Zero();
+                C_[0] = (r_ij[0] * r_ij[0]);
+                C_[1] = (r_ij[1] * r_ij[1]);
+                C_[2] = (r_ij[0] * r_ij[1]);
+
+                SC_rate_contact += S_ * H_rate_contact * C_.transpose();
+                G_rate_contact += S_ * H_rate_contact * FF_;
+
+            }
         }
 
-        SC_[index_i] = SC_rate;
-        G_[index_i] = G_rate;
+        SC_[index_i] += SC_rate_contact;
+        G_[index_i] += G_rate_contact;
 
         Laplacian_[index_i] = diffusion_coeff_ * SC_[index_i].inverse() * G_[index_i];
 
@@ -540,7 +565,16 @@ class DiffusionInitialCondition : public LocalDynamics, public LaplacianSolidDat
   protected:
     void update(size_t index_i, Real dt = 0.0)
     {
-        phi_[index_i] = 3.0 * pos_[index_i][0] * pos_[index_i][0];
+         if (pos_[index_i][0] >= 0.4 * L && pos_[index_i][0] <= 0.6 * L)
+        {
+           // if (pos_[index_i][1] >= 0.4*H && pos_[index_i][1] <= 0.6 * H)
+           // {
+             //   phi_[index_i] = 1.0;
+          //  }
+          
+        } 
+         phi_[index_i] = 3.0 * pos_[index_i][0] * pos_[index_i][0];
+       
     };
 };
 
@@ -615,7 +649,7 @@ int main(int ac, char *av[])
     InteractionWithUpdate<NonisotropicKernelCorrectionMatrixComplex> correct_configuration(diffusion_block_complex);
     InteractionDynamics<NonisotropicKernelCorrectionMatrixComplexAC> correct_second_configuration(diffusion_block_complex);
     ReduceDynamics<GetLaplacianTimeStepSize> get_time_step_size(diffusion_body);
-    Dynamics1Level<LaplacianBodyRelaxation> diffusion_relaxation(diffusion_body_inner_relation);
+    Dynamics1Level<LaplacianBodyRelaxation> diffusion_relaxation(diffusion_block_complex);
 
     SimpleDynamics<DiffusionInitialCondition> setup_diffusion_initial_condition(diffusion_body_inner_relation);
 
@@ -631,9 +665,6 @@ int main(int ac, char *av[])
 
     diffusion_body.addBodyStateForRecording<Vec2d>("FirstOrderCorrectionVectorE");
 	
-    // diffusion_body.addBodyStateForRecording<Real>("ShowingNeighbor");
-    // boundary_body.addBodyStateForRecording<Real>("ShowingNeighbor");
-
 	PeriodicConditionUsingCellLinkedList periodic_condition_y(diffusion_body, diffusion_body.getBodyShapeBounds(), yAxis);
 
     //----------------------------------------------------------------------
@@ -647,7 +678,7 @@ int main(int ac, char *av[])
     //	and case specified initial condition if necessary.
     //----------------------------------------------------------------------
     sph_system.initializeSystemCellLinkedLists();
-	periodic_condition_y.update_cell_linked_list_.exec();
+	//periodic_condition_y.update_cell_linked_list_.exec();
     sph_system.initializeSystemConfigurations();
     correct_configuration.exec();
     correct_second_configuration.exec();
@@ -688,6 +719,7 @@ int main(int ac, char *av[])
                 if (ite < 3.0)
                 {
                     write_states.writeToFile(ite);
+                    write_solid_temperature.writeToFile(ite);
                 }
                 if (ite % 10000 == 0)
                 {
