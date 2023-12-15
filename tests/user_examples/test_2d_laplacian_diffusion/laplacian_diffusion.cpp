@@ -412,7 +412,7 @@ class LaplacianBodyRelaxation : public LocalDynamics, public LaplacianSolidDataC
 
             
                 Vec3d S_ = Vec3d(r_ij[0] * r_ij[0], r_ij[1] * r_ij[1], r_ij[0] * r_ij[1]);
-                Real FF_ = 2.0 * (0.0 - r_ij.dot(E_[index_i]));
+                Real FF_ = 2.0 * (0.0 - r_ij.dot(E_[index_i])); ///here when it is periodic boundary condition, should notice the 0.0
                 H_rate_contact = r_ij.dot(B_[index_i].transpose() * gradW_ijV_j) / pow(r_ij.norm(), 4.0);
 		
                 //TO DO
@@ -540,15 +540,47 @@ class DiffusionInitialCondition : public LocalDynamics, public LaplacianSolidDat
   protected:
     void update(size_t index_i, Real dt = 0.0)
     {
-         if (pos_[index_i][0] >= 0.4 * L && pos_[index_i][0] <= 0.6 * L)
+        if (pos_[index_i][0] >= 0.3 * L && pos_[index_i][0] <= 0.7 * L)
         {
-           // if (pos_[index_i][1] >= 0.4*H && pos_[index_i][1] <= 0.6 * H)
-           // {
-             //   phi_[index_i] = 1.0;
-          //  }
+            if (pos_[index_i][1] >= 0.3*H && pos_[index_i][1] <= 0.7 * H)
+            {
+                phi_[index_i] = 1.0;
+            }
           
         } 
-         phi_[index_i] = 3.0 * pos_[index_i][1] * pos_[index_i][1];
+     //    phi_[index_i] = 3.0 * pos_[index_i][0] * pos_[index_i][0];
+       
+    };
+};
+
+
+
+class DiffusionUpdateCondition : public LocalDynamics, public LaplacianSolidDataInner
+{
+  public:
+    DiffusionUpdateCondition(BaseInnerRelation &inner_relation)
+        : LocalDynamics(inner_relation.getSPHBody()), LaplacianSolidDataInner(inner_relation),
+          pos_(particles_->pos_), phi_(particles_->phi_){};
+    virtual ~DiffusionUpdateCondition(){};
+
+    StdLargeVec<Vec2d> &pos_;
+    StdLargeVec<Real> &phi_;
+
+  protected:
+    void update(size_t index_i, Real dt = 0.0)
+    {
+         if ( (pos_[index_i][1] >= 0.8 * H) || (pos_[index_i][1] <= 0.2 * H))
+        {
+               phi_[index_i] = 1.0;
+                  
+        } 
+           if ((pos_[index_i][0] >= 0.9 * L) || (pos_[index_i][0] <= 0.1 * L))
+        {
+              
+              phi_[index_i] = 1.0;
+          
+        }   
+       
        
     };
 };
@@ -627,6 +659,7 @@ int main(int ac, char *av[])
     Dynamics1Level<LaplacianBodyRelaxation> diffusion_relaxation(diffusion_block_complex);
 
     SimpleDynamics<DiffusionInitialCondition> setup_diffusion_initial_condition(diffusion_body_inner_relation);
+    SimpleDynamics<DiffusionUpdateCondition> update_diffusion_condition(diffusion_body_inner_relation);
 
     diffusion_body.addBodyStateForRecording<Real>("Phi");
 
@@ -641,6 +674,7 @@ int main(int ac, char *av[])
     diffusion_body.addBodyStateForRecording<Vec2d>("FirstOrderCorrectionVectorE");
 	
 	PeriodicConditionUsingCellLinkedList periodic_condition_y(diffusion_body, diffusion_body.getBodyShapeBounds(), yAxis);
+	PeriodicConditionUsingCellLinkedList periodic_condition_x(diffusion_body, diffusion_body.getBodyShapeBounds(), xAxis);
 
     //----------------------------------------------------------------------
     //	Define the methods for I/O operations and observations of the simulation.
@@ -653,11 +687,13 @@ int main(int ac, char *av[])
     //	and case specified initial condition if necessary.
     //----------------------------------------------------------------------
     sph_system.initializeSystemCellLinkedLists();
-	//periodic_condition_y.update_cell_linked_list_.exec();
+	periodic_condition_y.update_cell_linked_list_.exec();
+	periodic_condition_x.update_cell_linked_list_.exec();
     sph_system.initializeSystemConfigurations();
     correct_configuration.exec();
     correct_second_configuration.exec();
     setup_diffusion_initial_condition.exec();
+   // update_diffusion_condition.exec();
     //----------------------------------------------------------------------
     //	Setup for time-stepping control
     //----------------------------------------------------------------------
@@ -689,14 +725,16 @@ int main(int ac, char *av[])
             Real relaxation_time = 0.0;
             while (relaxation_time < Observe_time)
             {
-                dt = 0.1*scaling_factor * get_time_step_size.exec();
+                dt = 0.01 *scaling_factor * get_time_step_size.exec();
                 diffusion_relaxation.exec(dt);
+          //    update_diffusion_condition.exec();
+
                 if (ite < 3.0)
                 {
                     write_states.writeToFile(ite);
                     write_solid_temperature.writeToFile(ite);
                 }
-                if (ite % 10000 == 0)
+                if (ite % 1000 == 0)
                 {
                     std::cout << "N=" << ite << " Time: "
                               << GlobalStaticVariables::physical_time_ << "	dt: "

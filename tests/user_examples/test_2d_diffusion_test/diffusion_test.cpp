@@ -9,13 +9,13 @@ using namespace SPH;   // Namespace cite here
 //	Basic geometry parameters and numerical setup.
 //----------------------------------------------------------------------
 Real L = 2.0;
-Real H = 2.0;
-Real resolution_ref = H / 100.0;
+Real H = 0.4;
+Real resolution_ref = H / 20.0;
 BoundingBox system_domain_bounds(Vec2d(0.0, 0.0), Vec2d(L, H));
 //----------------------------------------------------------------------
 //	Basic parameters for material properties.
 //----------------------------------------------------------------------
-Real diffusion_coeff = 0.1;
+Real diffusion_coeff = 0.05;
 Real bias_coeff = 0.0;
 Real alpha = Pi / 6.0;
 Vec2d bias_direction(cos(alpha), sin(alpha));
@@ -66,18 +66,55 @@ class DiffusionInitialCondition
 
     void update(size_t index_i, Real dt)
     {
-         if (pos_[index_i][0] >= 0.4*L && pos_[index_i][0] <= 0.6 * L)
+         if (pos_[index_i][0] >= 0.3*L && pos_[index_i][0] <= 0.7 * L)
         {
-            if (pos_[index_i][1] >= 0.4*H && pos_[index_i][1] <= 0.6 * H)
+            if (pos_[index_i][1] >= 0.3*H && pos_[index_i][1] <= 0.7 * H)
             {
                  all_species_[phi_][index_i] = 1.0;
       
             }
           
-        }
+        } 
+        //all_species_[phi_][index_i]  = 3.0 * pos_[index_i][0] * pos_[index_i][0];
+       
           
     };
 };
+
+
+
+class DiffusionUpdateCondition
+    : public DiffusionReactionInitialCondition<DiffusionParticles>
+{
+  protected:
+    size_t phi_;
+
+  public:
+    explicit DiffusionUpdateCondition(SPHBody &sph_body)
+        : DiffusionReactionInitialCondition<DiffusionParticles>(sph_body)
+    {
+        phi_ = particles_->diffusion_reaction_material_.AllSpeciesIndexMap()["Phi"];
+    };
+
+    void update(size_t index_i, Real dt)
+    {
+          if ((pos_[index_i][1] >= 0.8 * H) || (pos_[index_i][1] <= 0.2 * H))
+        {
+             all_species_[phi_][index_i]  = 1.0;
+          
+        }     
+    
+          if ((pos_[index_i][0] >= 0.9 * L) || (pos_[index_i][0] <= 0.1 * L))
+        {
+             all_species_[phi_][index_i]  = 1.0;
+          
+        }   
+    };
+};
+
+
+ 
+
 //----------------------------------------------------------------------
 //	Specify diffusion relaxation method.
 //----------------------------------------------------------------------
@@ -124,7 +161,7 @@ int main(int ac, char *av[])
     //----------------------------------------------------------------------
     //	Creating body, materials and particles.
     //----------------------------------------------------------------------
-    SolidBody diffusion_body(sph_system, makeShared<DiffusionBlock>("DiffusionBlock"));
+    SolidBody diffusion_body(sph_system, makeShared<DiffusionBlock>("DiffusionTest"));
     diffusion_body.defineParticlesAndMaterial<DiffusionParticles, DiffusionMaterial>();
     diffusion_body.generateParticles<ParticleGeneratorLattice>();
     //----------------------------------------------------------------------
@@ -151,21 +188,30 @@ int main(int ac, char *av[])
     InteractionWithUpdate<KernelCorrectionMatrixInner> correct_configuration(diffusion_body_inner_relation);
     GetDiffusionTimeStepSize<DiffusionParticles> get_time_step_size(diffusion_body);
     PeriodicConditionUsingCellLinkedList periodic_condition_y(diffusion_body, diffusion_body.getBodyShapeBounds(), yAxis);
+    PeriodicConditionUsingCellLinkedList periodic_condition_x(diffusion_body, diffusion_body.getBodyShapeBounds(), xAxis);
+
+     SimpleDynamics<DiffusionUpdateCondition> update_diffusion_condition(diffusion_body);          
+
     //----------------------------------------------------------------------
     //	Define the methods for I/O operations and observations of the simulation.
     //----------------------------------------------------------------------
     BodyStatesRecordingToVtp write_states(io_environment, sph_system.real_bodies_);
     RegressionTestEnsembleAverage<ObservedQuantityRecording<Real>>
         write_solid_temperature("Phi", io_environment, temperature_observer_contact);
+
+  diffusion_body.addBodyStateForRecording<Real>("PhiChangeRate");
+
     //----------------------------------------------------------------------
     //	Prepare the simulation with cell linked list, configuration
     //	and case specified initial condition if necessary.
     //----------------------------------------------------------------------
     sph_system.initializeSystemCellLinkedLists();
-    //periodic_condition_y.update_cell_linked_list_.exec();
+     periodic_condition_y.update_cell_linked_list_.exec();
+     periodic_condition_x.update_cell_linked_list_.exec();
     sph_system.initializeSystemConfigurations();
     correct_configuration.exec();
     setup_diffusion_initial_condition.exec();
+   // update_diffusion_condition.exec();
     //----------------------------------------------------------------------
     //	Setup for time-stepping control
     //----------------------------------------------------------------------
@@ -196,27 +242,30 @@ int main(int ac, char *av[])
             Real relaxation_time = 0.0;
             while (relaxation_time < Observe_time)
             {
-                if (ite < 3.0)
+                dt =   0.1*get_time_step_size.exec();
+                diffusion_relaxation.exec(dt);
+             //   update_diffusion_condition.exec();
+
+                 if (ite < 3.0)
                 {
                     write_states.writeToFile(ite);
                     write_solid_temperature.writeToFile(ite);
                 }
-                if (ite % 100 == 0)
+                if (ite % 1000 == 0)
                 {
                     std::cout << "N=" << ite << " Time: "
                               << GlobalStaticVariables::physical_time_ << "	dt: "
                               << dt << "\n";
                 }
 
-                diffusion_relaxation.exec(dt);
-
                 ite++;
-                dt = get_time_step_size.exec();
+              
                 relaxation_time += dt;
                 integration_time += dt;
                 GlobalStaticVariables::physical_time_ += dt;
             }
-        write_solid_temperature.writeToFile(ite);
+        write_solid_temperature.writeToFile(ite);  
+      
         } 
         
         TickCount t2 = TickCount::now();
