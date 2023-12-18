@@ -14,7 +14,7 @@ Real H = 0.4;
 int resolution(20);
 
 int z_num = 20;
-Real ratio_ = 4.0;
+Real ratio_ = 1.0;
 Real resolution_ref = H / z_num;
 Real resolution_ref_large = ratio_ * resolution_ref;
 int x_num = L / resolution_ref_large;
@@ -29,7 +29,7 @@ Real BH = 3.0 * resolution_ref;
 //----------------------------------------------------------------------
 //	Basic parameters for material properties.
 //----------------------------------------------------------------------
-Real diffusion_coeff = 0.05;
+Real diffusion_coeff = 1.0;
 Real rho0 = 1.0;
 Real youngs_modulus = 1.0;
 Real poisson_ratio = 1.0;
@@ -47,18 +47,13 @@ public:
 	explicit DiffusionBlock(const std::string &shape_name) : ComplexShape(shape_name)
 	{
 		add<TriangleMeshShapeBrick>(halfsize_membrane, resolution, translation_membrane);
-	
 	}
 };
 
- 
 AnisotropicKernel<KernelWendlandC2>
     wendland(1.15 * resolution_ref_large, scaling_vector, Vec3d(0.0, 0.0, 0.0)); // no rotation introduced
 
 Mat3d transform_tensor = wendland.getCoordinateTransformationTensorG(scaling_vector, Vec3d(0.0, 0.0, 0.0)); // tensor
- 
-
-
 
 
 /** Define application dependent particle generator for thin structure. */
@@ -175,19 +170,30 @@ class NonisotropicKernelCorrectionMatrixInner : public LocalDynamics, public Gen
     NonisotropicKernelCorrectionMatrixInner(BaseInnerRelation &inner_relation, Real alpha = Real(0))
         : LocalDynamics(inner_relation.getSPHBody()),
           GeneralDataDelegateInner(inner_relation), 
-		B_(*particles_->registerSharedVariable<Mat3d>("KernelCorrectionMatrix")) {};
+		B_(*particles_->registerSharedVariable<Mat3d>("KernelCorrectionMatrix")) 
+        {
+            
+            particles_->registerVariable(show_neighbor_, "ShowingNeighbor", [&](size_t i) -> Real
+                    { return Real(0.0); });
+        };
 
     virtual ~NonisotropicKernelCorrectionMatrixInner(){};
 
   protected:
 	  StdLargeVec<Mat3d> &B_;
- 
+     StdLargeVec<Real> show_neighbor_;
+
 	  void interaction(size_t index_i, Real dt = 0.0)
 	  {
 		  Mat3d local_configuration = Eps * Mat3d::Identity();
 		  const Neighborhood &inner_neighborhood = inner_configuration_[index_i];
 		  for (size_t n = 0; n != inner_neighborhood.current_size_; ++n)
 		  {
+            size_t index_j = inner_neighborhood.j_[n];
+            if (index_i == 1650)
+            {
+                show_neighbor_[index_j] = 1.0;
+            }
 			  Vec3d gradW_ij = inner_neighborhood.dW_ijV_j_[n] * inner_neighborhood.e_ij_[n];
  
 			  Vec3d r_ji = inner_neighborhood.r_ij_vector_[n];
@@ -251,11 +257,8 @@ class LaplacianBodyRelaxation : public LocalDynamics, public LaplacianSolidDataI
           pos_(particles_->pos_), B_(particles_->B_), phi_(particles_->phi_), A1_(particles_->A1_), A2_(particles_->A2_), A3_(particles_->A3_),
            A4_(particles_->A4_), A5_(particles_->A5_), A6_(particles_->A6_)
     {
-        particles_->registerVariable(SC_, "FirstOrderCorrectionMatrixSC", [&](size_t i) -> Mat6d { return Eps * Mat6d::Identity(); });
         particles_->registerVariable(E_, "FirstOrderCorrectionVectorE", [&](size_t i) -> Vec3d { return Eps * Vec3d::Identity(); });
-        particles_->registerVariable(G_, "FirstOrderCorrectionVectorG", [&](size_t i) -> Vec6d { return Eps * Vec6d::Identity(); });
-        particles_->registerVariable(Laplacian_, "Laplacian", [&](size_t i) -> Vec6d { return Vec6d::Zero(); });
-
+     
         particles_->registerVariable(Laplacian_x, "Laplacian_x", [&](size_t i) -> Real { return Real(0.0); });
         particles_->registerVariable(Laplacian_y, "Laplacian_y", [&](size_t i) -> Real { return Real(0.0); });
         particles_->registerVariable(Laplacian_z, "Laplacian_z", [&](size_t i) -> Real { return Real(0.0); });
@@ -269,16 +272,14 @@ class LaplacianBodyRelaxation : public LocalDynamics, public LaplacianSolidDataI
     StdLargeVec<Mat3d> &B_;
     StdLargeVec<Real> &phi_;
 
-   StdLargeVec<Vec3d> &A1_,&A2_,&A3_, &A4_,&A5_,&A6_;
-
-    StdLargeVec<Mat6d> SC_;
+    StdLargeVec<Vec3d> &A1_,&A2_,&A3_, &A4_,&A5_,&A6_;
     StdLargeVec<Vec3d> E_;
-
-    StdLargeVec<Vec6d> G_; 
-    StdLargeVec<Vec6d> Laplacian_;
+    
+    Mat6d  SC_;
+    Vec6d  G_; 
+    Vec6d  Laplacian_;
 
     StdLargeVec<Real> Laplacian_x, Laplacian_y, Laplacian_z, diffusion_dt_;
-
     Real diffusion_coeff_;
 
   protected:
@@ -310,7 +311,7 @@ class LaplacianBodyRelaxation : public LocalDynamics, public LaplacianSolidDataI
             H_rate = r_ij.dot(B_[index_i].transpose() * gradW_ijV_j) / pow(r_ij.norm(), 4.0);
 			 
             Real FF_ = 2.0 * (phi_[index_j] - phi_[index_i] - r_ij.dot(E_[index_i]));
-            G_rate += S_ *H_rate * FF_;
+            G_rate += S_ * H_rate * FF_;
             
              //TO DO
             Vec6d C_ = Vec6d::Zero();
@@ -320,19 +321,26 @@ class LaplacianBodyRelaxation : public LocalDynamics, public LaplacianSolidDataI
             C_[3] = (r_ij[0] * r_ij[1]);
             C_[4] = (r_ij[1] * r_ij[2]);
             C_[5] = (r_ij[2] * r_ij[0]);
-            SC_rate += S_ *H_rate* C_.transpose();   
+            SC_rate += S_ * H_rate* C_.transpose();   
 
         }
         
-        G_[index_i] = G_rate;
-        SC_[index_i] = SC_rate;
+        G_ = G_rate;
+        SC_ = SC_rate;
+
+        Laplacian_ = diffusion_coeff_ * SC_.inverse() * G_;
+
+        Laplacian_x[index_i] = Laplacian_[0];
+        Laplacian_y[index_i] = Laplacian_[1];
+        Laplacian_z[index_i] = Laplacian_[2];
+		diffusion_dt_[index_i] = Laplacian_[0] + Laplacian_[1]+ Laplacian_[2];
         
     
     };
  
     void update(size_t index_i, Real dt = 0.0)
     {
-        phi_[index_i] += dt * (Laplacian_[index_i][0] + Laplacian_[index_i][1] + Laplacian_[index_i][2]);
+        phi_[index_i] += dt * diffusion_dt_[index_i];
     };
 };
  
@@ -350,7 +358,7 @@ class LaplacianBodyRelaxation : public LocalDynamics, public LaplacianSolidDataI
   protected:
     void update(size_t index_i, Real dt = 0.0)
     {
-        if (pos_[index_i][0] >= 0.3 * L && pos_[index_i][0] <= 0.7 * L)
+         if (pos_[index_i][0] >= 0.3 * L && pos_[index_i][0] <= 0.7 * L)
         {
             if (pos_[index_i][1] >= 0.3*L && pos_[index_i][1] <= 0.7 * L)
             {
@@ -360,8 +368,8 @@ class LaplacianBodyRelaxation : public LocalDynamics, public LaplacianSolidDataI
                 }
             }
           
-        }
-        //  phi_[index_i] = 3.0 * pos_[index_i][0] * pos_[index_i][0];
+        } 
+     //  phi_[index_i] = 1.0 * pos_[index_i][0] * pos_[index_i][0];
        
     };
 };
@@ -384,7 +392,7 @@ class GetLaplacianTimeStepSize : public LocalDynamicsReduce<Real, ReduceMin>,
 
     Real reduce(size_t index_i, Real dt)
     {
-        return 0.5 * smoothing_length * smoothing_length * smoothing_length / particles_->laplacian_solid_.DiffusivityCoefficient() / Dimensions;
+        return 0.5 * smoothing_length * smoothing_length / particles_->laplacian_solid_.DiffusivityCoefficient() / Dimensions;
     }
 
     virtual ~GetLaplacianTimeStepSize(){};
@@ -444,9 +452,8 @@ int main(int ac, char *av[])
     diffusion_body.addBodyStateForRecording<Real>("Laplacian_y");
     diffusion_body.addBodyStateForRecording<Mat3d>("KernelCorrectionMatrix");
 	diffusion_body.addBodyStateForRecording<Real>("Laplacian_z");
-	diffusion_body.addBodyStateForRecording<Real>("diffusion_dt");
+    diffusion_body.addBodyStateForRecording<Real>("ShowingNeighbor");
 
-    diffusion_body.addBodyStateForRecording<Vec3d>("FirstOrderCorrectionVectorE");
 	
 	PeriodicConditionUsingCellLinkedList periodic_condition_y(diffusion_body, diffusion_body.getBodyShapeBounds(), yAxis);
 	PeriodicConditionUsingCellLinkedList periodic_condition_x(diffusion_body, diffusion_body.getBodyShapeBounds(), xAxis);
@@ -463,8 +470,8 @@ int main(int ac, char *av[])
     //	and case specified initial condition if necessary.
     //----------------------------------------------------------------------
     sph_system.initializeSystemCellLinkedLists();
-	periodic_condition_y.update_cell_linked_list_.exec();
 	periodic_condition_x.update_cell_linked_list_.exec();
+    periodic_condition_y.update_cell_linked_list_.exec();
     periodic_condition_z.update_cell_linked_list_.exec();
     sph_system.initializeSystemConfigurations();
     correct_configuration.exec();
@@ -501,7 +508,7 @@ int main(int ac, char *av[])
             Real relaxation_time = 0.0;
             while (relaxation_time < Observe_time)
             {
-                dt = 0.1 *scaling_factor * get_time_step_size.exec();
+                dt = scaling_factor * get_time_step_size.exec();
                 diffusion_relaxation.exec(dt);
              
                 if (ite < 3.0)
