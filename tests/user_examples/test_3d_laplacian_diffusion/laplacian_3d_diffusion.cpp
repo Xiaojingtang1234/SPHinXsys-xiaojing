@@ -144,7 +144,9 @@ class LaplacianDiffusionParticles : public ElasticSolidParticles
 
         addVariableToWrite<Vec3d>("FirstOrderCorrectionVectorA1");
         addVariableToWrite<Vec3d>("FirstOrderCorrectionVectorA2");
-        addVariableToWrite<Vec3d>("FirstOrderCorrectionVectorA3");
+        
+        addVariableToWrite<Vec3d>("FirstOrderCorrectionVectorA4");
+        addVariableToWrite<Vec3d>("FirstOrderCorrectionVectorA5");
     };
 
     StdLargeVec<Real> phi_;
@@ -190,7 +192,7 @@ class NonisotropicKernelCorrectionMatrixInner : public LocalDynamics, public Gen
 		  for (size_t n = 0; n != inner_neighborhood.current_size_; ++n)
 		  {
             size_t index_j = inner_neighborhood.j_[n];
-            if (index_i == 1650)
+            if (index_i == 92000)
             {
                 show_neighbor_[index_j] = 1.0;
             }
@@ -255,14 +257,23 @@ class LaplacianBodyRelaxation : public LocalDynamics, public LaplacianSolidDataI
    LaplacianBodyRelaxation(BaseInnerRelation &inner_relation)
         : LocalDynamics(inner_relation.getSPHBody()), LaplacianSolidDataInner(inner_relation),
           pos_(particles_->pos_), B_(particles_->B_), phi_(particles_->phi_), A1_(particles_->A1_), A2_(particles_->A2_), A3_(particles_->A3_),
-           A4_(particles_->A4_), A5_(particles_->A5_), A6_(particles_->A6_)
+           A4_(particles_->A4_), A5_(particles_->A5_), A6_(particles_->A6_),  particle_number(inner_relation.getSPHBody().getBaseParticles().real_particles_bound_)
     {
         particles_->registerVariable(E_, "FirstOrderCorrectionVectorE", [&](size_t i) -> Vec3d { return Eps * Vec3d::Identity(); });
-     
+
+        std::cout<<particle_number<<std::endl;
+
         particles_->registerVariable(Laplacian_x, "Laplacian_x", [&](size_t i) -> Real { return Real(0.0); });
         particles_->registerVariable(Laplacian_y, "Laplacian_y", [&](size_t i) -> Real { return Real(0.0); });
         particles_->registerVariable(Laplacian_z, "Laplacian_z", [&](size_t i) -> Real { return Real(0.0); });
 		particles_->registerVariable(diffusion_dt_, "diffusion_dt", [&](size_t i) -> Real { return Real(0.0); });
+
+         for (size_t i = 0; i != particle_number; ++i)
+        {
+            SC_.push_back(Mat6d::Identity()); 
+            G_.push_back(Vec6d::Identity()); 
+            Laplacian_.push_back(Vec6d::Identity()); 
+        }
 		
         diffusion_coeff_ = particles_->laplacian_solid_.DiffusivityCoefficient();
     };
@@ -275,9 +286,10 @@ class LaplacianBodyRelaxation : public LocalDynamics, public LaplacianSolidDataI
     StdLargeVec<Vec3d> &A1_,&A2_,&A3_, &A4_,&A5_,&A6_;
     StdLargeVec<Vec3d> E_;
     
-    Mat6d  SC_;
-    Vec6d  G_; 
-    Vec6d  Laplacian_;
+     StdLargeVec<Mat6d> SC_;
+     StdLargeVec<Vec6d> G_; 
+     StdLargeVec<Vec6d> Laplacian_;
+    size_t particle_number;
 
     StdLargeVec<Real> Laplacian_x, Laplacian_y, Laplacian_z, diffusion_dt_;
     Real diffusion_coeff_;
@@ -299,41 +311,41 @@ class LaplacianBodyRelaxation : public LocalDynamics, public LaplacianSolidDataI
         E_[index_i] = E_rate;
 
          
-        Vec6d G_rate = Vec6d::Zero();
-        Mat6d SC_rate = Mat6d::Zero();
-        Real H_rate = 1.0;
+        Vec6d Right_term = Vec6d::Zero();
+        Mat6d Left_term = Mat6d::Zero();
+        Real Scalar_function_H = 1.0;
          for (size_t n = 0; n != inner_neighborhood.current_size_; ++n) // this is ik
         {
             size_t index_j = inner_neighborhood.j_[n];
             Vec3d r_ij = -inner_neighborhood.r_ij_vector_[n];
             Vec3d gradW_ijV_j = inner_neighborhood.dW_ijV_j_[n] * inner_neighborhood.e_ij_[n];
             Vec6d S_ = Vec6d(r_ij[0] * r_ij[0], r_ij[1] * r_ij[1], r_ij[2] * r_ij[2], r_ij[0] * r_ij[1], r_ij[1] * r_ij[2], r_ij[2] * r_ij[0]);
-            H_rate = r_ij.dot(B_[index_i].transpose() * gradW_ijV_j) / pow(r_ij.norm(), 4.0);
+            Scalar_function_H = r_ij.dot(B_[index_i].transpose() * gradW_ijV_j) / pow(r_ij.norm(), 4.0);
 			 
             Real FF_ = 2.0 * (phi_[index_j] - phi_[index_i] - r_ij.dot(E_[index_i]));
-            G_rate += S_ * H_rate * FF_;
+            Right_term += S_ * Scalar_function_H * FF_;
             
              //TO DO
             Vec6d C_ = Vec6d::Zero();
-            C_[0] = (r_ij[0] * r_ij[0]);
-            C_[1] = (r_ij[1] * r_ij[1]);
-            C_[2] = (r_ij[2] * r_ij[2]);
-            C_[3] = (r_ij[0] * r_ij[1]);
-            C_[4] = (r_ij[1] * r_ij[2]);
-            C_[5] = (r_ij[2] * r_ij[0]);
-            SC_rate += S_ * H_rate* C_.transpose();   
+            C_[0] = (r_ij[0] * r_ij[0]- r_ij.dot(A1_[index_i]));
+            C_[1] = (r_ij[1] * r_ij[1]- r_ij.dot(A2_[index_i]));
+            C_[2] = (r_ij[2] * r_ij[2]- r_ij.dot(A3_[index_i]));
+            C_[3] = (r_ij[0] * r_ij[1]- r_ij.dot(A4_[index_i]));
+            C_[4] = (r_ij[1] * r_ij[2]- r_ij.dot(A5_[index_i]));
+            C_[5] = (r_ij[2] * r_ij[0]- r_ij.dot(A6_[index_i]));
+            Left_term += S_ * Scalar_function_H* C_.transpose();   
 
         }
         
-        G_ = G_rate;
-        SC_ = SC_rate;
+        G_[index_i] = Right_term;
+        SC_[index_i] = Left_term;
 
-        Laplacian_ = diffusion_coeff_ * SC_.inverse() * G_;
+        Laplacian_[index_i] = diffusion_coeff_ * SC_[index_i].inverse() * G_[index_i];
 
-        Laplacian_x[index_i] = Laplacian_[0];
-        Laplacian_y[index_i] = Laplacian_[1];
-        Laplacian_z[index_i] = Laplacian_[2];
-		diffusion_dt_[index_i] = Laplacian_[0] + Laplacian_[1]+ Laplacian_[2];
+        Laplacian_x[index_i] = Laplacian_[index_i][0];
+        Laplacian_y[index_i] = Laplacian_[index_i][1];
+        Laplacian_z[index_i] = Laplacian_[index_i][2];
+		diffusion_dt_[index_i] = Laplacian_[index_i][0] + Laplacian_[index_i][1]+ Laplacian_[index_i][2];
         
     
     };
@@ -452,6 +464,8 @@ int main(int ac, char *av[])
     diffusion_body.addBodyStateForRecording<Real>("Laplacian_y");
     diffusion_body.addBodyStateForRecording<Mat3d>("KernelCorrectionMatrix");
 	diffusion_body.addBodyStateForRecording<Real>("Laplacian_z");
+    diffusion_body.addBodyStateForRecording<Real>("diffusion_dt");
+    
     diffusion_body.addBodyStateForRecording<Real>("ShowingNeighbor");
 
 	
