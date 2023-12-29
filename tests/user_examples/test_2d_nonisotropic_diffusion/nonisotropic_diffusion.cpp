@@ -9,14 +9,10 @@ using namespace SPH;   // Namespace cite here
 //	Basic geometry parameters and numerical setup.
 //----------------------------------------------------------------------
 Real L = 2.0;
-Real H = 0.4;
+Real H = 2.0;
   
-int y_num = 20;
-Real ratio_ = 1.0;
+int y_num = 40;
 Real resolution_ref = H / y_num;
-  
-Vec2d scaling_vector = Vec2d(1.0, 1.0 / ratio_); // scaling_vector for defining the anisotropic kernel
-Real scaling_factor = 1.0 / ratio_;              // scaling factor to calculate the time step
  
 BoundingBox system_domain_bounds(Vec2d(-L, -H), Vec2d(2.0 * L, 2.0 * H));
 Real BL = 3.0 * resolution_ref;
@@ -24,7 +20,7 @@ Real BH = 3.0 * resolution_ref;
 //----------------------------------------------------------------------
 //	Basic parameters for material properties.
 //----------------------------------------------------------------------
-Real diffusion_coeff = 1.0;
+Real diffusion_coeff = 0.01;
 Real rho0 = 1.0;
 Real youngs_modulus = 1.0;
 Real poisson_ratio = 1.0;
@@ -34,7 +30,7 @@ Real poisson_ratio = 1.0;
  
 Mat2d decomposed_transform_tensor{ 
      {1.0,0.0},  
-     {0.0, 0.9},
+     {0.0, 0.3},
 }; 
 
 
@@ -196,13 +192,19 @@ class NonisotropicKernelCorrectionMatrixComplexAC : public LocalDynamics, public
   public:
     NonisotropicKernelCorrectionMatrixComplexAC(ComplexRelation &complex_relation): 
                 LocalDynamics(complex_relation.getInnerRelation().getSPHBody()), LaplacianSolidDataComplex(complex_relation),
-                 B_(particles_->B_), A1_(particles_->A1_), A2_(particles_->A2_), A3_(particles_->A3_) {};
+                 B_(particles_->B_), A1_(particles_->A1_), A2_(particles_->A2_), A3_(particles_->A3_)
+                 {
+                 inverse_decomposed_transform_tensor =  decomposed_transform_tensor.inverse();
+ 
+                 };
 
     virtual ~NonisotropicKernelCorrectionMatrixComplexAC(){};
 
   protected:
     StdLargeVec<Mat2d> &B_;
     StdLargeVec<Vec2d> &A1_,&A2_,&A3_;
+   
+    Mat2d inverse_decomposed_transform_tensor;
 
     void initialization(size_t index_i, Real dt = 0.0)
     {
@@ -210,8 +212,8 @@ class NonisotropicKernelCorrectionMatrixComplexAC : public LocalDynamics, public
         for (size_t n = 0; n != inner_neighborhood.current_size_; ++n) // this is ik
         {
             Vec2d gradW_ikV_k = inner_neighborhood.dW_ijV_j_[n] * inner_neighborhood.e_ij_[n];
-            Vec2d r_ik = -inner_neighborhood.r_ij_vector_[n];
-
+            Vec2d r_ik = inverse_decomposed_transform_tensor * -inner_neighborhood.r_ij_vector_[n];
+            
             A1_[index_i] += r_ik[0] * r_ik[0] * (B_[index_i].transpose() * gradW_ikV_k);
             A2_[index_i] += r_ik[1] * r_ik[1] * (B_[index_i].transpose() * gradW_ikV_k);
             A3_[index_i] += r_ik[0] * r_ik[1] * (B_[index_i].transpose() * gradW_ikV_k);
@@ -224,10 +226,10 @@ class NonisotropicKernelCorrectionMatrixComplexAC : public LocalDynamics, public
         {
             Neighborhood &contact_neighborhood = (*contact_configuration_[k])[index_i];
             for (size_t n = 0; n != contact_neighborhood.current_size_; ++n)
-            {
-                Vec2d r_ik = -contact_neighborhood.r_ij_vector_[n];
-                Vec2d gradW_ikV_k = contact_neighborhood.dW_ijV_j_[n] * contact_neighborhood.e_ij_[n];
-
+            { 
+                Vec2d gradW_ikV_k = contact_neighborhood.dW_ijV_j_[n] * contact_neighborhood.e_ij_[n];  
+                Vec2d r_ik = inverse_decomposed_transform_tensor * -contact_neighborhood.r_ij_vector_[n];
+             
                 A1_[index_i] += r_ik[0] * r_ik[0] * (B_[index_i].transpose() * gradW_ikV_k);
                 A2_[index_i] += r_ik[1] * r_ik[1] * (B_[index_i].transpose() * gradW_ikV_k);
                 A3_[index_i] += r_ik[0] * r_ik[1] * (B_[index_i].transpose() * gradW_ikV_k);
@@ -257,7 +259,8 @@ class LaplacianBodyRelaxation : public LocalDynamics, public LaplacianSolidDataC
         particles_->registerVariable(Laplacian_y, "Laplacian_y", [&](size_t i) -> Real { return Real(0.0); });
         particles_->registerVariable(Laplacian_xy, "Laplacian_xy", [&](size_t i) -> Real { return Real(0.0); });
 		particles_->registerVariable(diffusion_dt_, "diffusion_dt", [&](size_t i) -> Real { return Real(0.0); });
-		
+		inverse_decomposed_transform_tensor =  decomposed_transform_tensor.inverse();
+ 
         diffusion_coeff_ = particles_->laplacian_solid_.DiffusivityCoefficient();
     };
     virtual ~LaplacianBodyRelaxation(){};
@@ -274,6 +277,8 @@ class LaplacianBodyRelaxation : public LocalDynamics, public LaplacianSolidDataC
     StdLargeVec<Vec3d> Laplacian_;
 
     StdLargeVec<Real> Laplacian_x, Laplacian_y, Laplacian_xy, diffusion_dt_;
+
+    Mat2d inverse_decomposed_transform_tensor;
 
     Real diffusion_coeff_;
 
@@ -298,7 +303,8 @@ class LaplacianBodyRelaxation : public LocalDynamics, public LaplacianSolidDataC
          for (size_t n = 0; n != inner_neighborhood.current_size_; ++n) // this is ik
         {
             size_t index_j = inner_neighborhood.j_[n];
-            Vec2d r_ij = -inner_neighborhood.r_ij_vector_[n];
+            Vec2d r_ij = inverse_decomposed_transform_tensor *  -inner_neighborhood.r_ij_vector_[n];
+
             Vec2d gradW_ijV_j = inner_neighborhood.dW_ijV_j_[n] * inner_neighborhood.e_ij_[n];
             Vec3d S_ = Vec3d(r_ij[0] * r_ij[0], r_ij[1] * r_ij[1], r_ij[0] * r_ij[1]);
             H_rate = r_ij.dot(B_[index_i].transpose() * gradW_ijV_j) / pow(r_ij.norm(), 4.0);
@@ -331,7 +337,7 @@ class LaplacianBodyRelaxation : public LocalDynamics, public LaplacianSolidDataC
             Neighborhood &contact_neighborhood = (*contact_configuration_[k])[index_i];
             for (size_t n = 0; n != contact_neighborhood.current_size_; ++n)
             {
-                Vec2d r_ij = -contact_neighborhood.r_ij_vector_[n];
+                Vec2d r_ij = inverse_decomposed_transform_tensor * -contact_neighborhood.r_ij_vector_[n];
                 Vec2d gradW_ijV_j = contact_neighborhood.dW_ijV_j_[n] * contact_neighborhood.e_ij_[n];
 
             
@@ -617,7 +623,7 @@ int main(int ac, char *av[])
             Real relaxation_time = 0.0;
             while (relaxation_time < Observe_time)
             {
-                dt = scaling_factor * get_time_step_size.exec();
+                dt =   get_time_step_size.exec();
                 diffusion_relaxation.exec(dt);
        
                 if (ite < 3.0)
