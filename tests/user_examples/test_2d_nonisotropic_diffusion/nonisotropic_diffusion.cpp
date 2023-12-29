@@ -14,15 +14,12 @@ Real H = 0.4;
 int y_num = 20;
 Real ratio_ = 1.0;
 Real resolution_ref = H / y_num;
-Real resolution_ref_large = ratio_ * resolution_ref;
-int x_num = L / resolution_ref_large;
+  
 Vec2d scaling_vector = Vec2d(1.0, 1.0 / ratio_); // scaling_vector for defining the anisotropic kernel
 Real scaling_factor = 1.0 / ratio_;              // scaling factor to calculate the time step
-
-
-Real V_j = resolution_ref_large * resolution_ref;
+ 
 BoundingBox system_domain_bounds(Vec2d(-L, -H), Vec2d(2.0 * L, 2.0 * H));
-Real BL = 3.0 * resolution_ref_large;
+Real BL = 3.0 * resolution_ref;
 Real BH = 3.0 * resolution_ref;
 //----------------------------------------------------------------------
 //	Basic parameters for material properties.
@@ -34,12 +31,14 @@ Real poisson_ratio = 1.0;
 //----------------------------------------------------------------------
 //	Geometric shapes used in the case.
 //----------------------------------------------------------------------
+ 
+Mat2d decomposed_transform_tensor{ 
+     {1.0,0.0},  
+     {0.0, 0.9},
+}; 
+
+
 std::vector<Vec2d> diffusion_shape{Vec2d(0.0, 0.0), Vec2d(0.0, H), Vec2d(L, H), Vec2d(L, 0.0), Vec2d(0.0, 0.0)};
-
-AnisotropicKernel<KernelWendlandC2>
-    wendland(1.15 * resolution_ref_large, scaling_vector, Vecd(0.0, 0.0)); // no rotation introduced
-
-Mat2d transform_tensor = wendland.getCoordinateTransformationTensorG(scaling_vector, Vecd(0.0, 0.0)); // tensor
 
 class DiffusionBlock : public MultiPolygonShape
 {
@@ -87,81 +86,8 @@ class TemperatureObserverParticleGenerator : public ObserverParticleGenerator
         }
     }
 };
-
-class AnisotropicParticleGenerator : public ParticleGenerator
-{
-  public:
-    AnisotropicParticleGenerator(SPHBody &sph_body) : ParticleGenerator(sph_body){};
-
-    virtual void initializeGeometricVariables() override
-    {
-        // set particles directly
-        for (int i = 0; i < x_num; i++)
-        {
-            for (int j = 0; j < y_num; j++)
-            {
-                Real x = (i + 0.5) * resolution_ref_large;
-                Real y = (j + 0.5) * resolution_ref;
-                initializePositionAndVolumetricMeasure(Vec2d(x, y), (resolution_ref * resolution_ref_large));
-            }
-        }
-    }
-};
-
-class AnisotropicParticleGeneratorBoundary : public ParticleGenerator
-{
-  public:
-    AnisotropicParticleGeneratorBoundary(SPHBody &sph_body) : ParticleGenerator(sph_body){};
-
-    virtual void initializeGeometricVariables() override
-    {
-        // set particles directly
-        for (int i = 0; i < 3; i++)
-        {
-            for (int j = 0; j < y_num + 6; j++)
-            {
-                Real x = -BL + (i + 0.5) * resolution_ref_large;
-                Real y = -BH + (j + 0.5) * resolution_ref;
-                initializePositionAndVolumetricMeasure(Vec2d(x, y), (resolution_ref * resolution_ref_large));
-            }
-        }
-
-        // set particles directly
-        for (int i = 0; i < 3; i++)
-        {
-            for (int j = 0; j < y_num + 6; j++)
-            {
-                Real x = (x_num + i + 0.5) * resolution_ref_large;
-                Real y = -BH + (j + 0.5) * resolution_ref;
-                initializePositionAndVolumetricMeasure(Vec2d(x, y), (resolution_ref * resolution_ref_large));
-            }
-        }
-
-        // set particles directly
-        for (int i = 0; i < x_num; i++)
-        {
-            for (int j = 0; j < 3; j++)
-            {
-                Real x = (i + 0.5) * resolution_ref_large;
-                Real y = -BH + (j + 0.5) * resolution_ref;
-                initializePositionAndVolumetricMeasure(Vec2d(x, y), (resolution_ref * resolution_ref_large));
-            }
-        }
-
-        // set particles directly
-        for (int i = 0; i < x_num; i++)
-        {
-            for (int j = 0; j < 3; j++)
-            {
-                Real x = (i + 0.5) * resolution_ref_large;
-                Real y = (y_num + j + 0.5) * resolution_ref;
-                initializePositionAndVolumetricMeasure(Vec2d(x, y), (resolution_ref * resolution_ref_large));
-            }
-        }
-    }
-};
-
-class LaplacianDiffusionSolid : public LinearElasticSolid
+ 
+ class LaplacianDiffusionSolid : public LinearElasticSolid
 {
   public:
     LaplacianDiffusionSolid(Real rho0, Real coeff, Real youngs_modulus, Real poisson_ratio)
@@ -552,36 +478,7 @@ class DiffusionInitialCondition : public LocalDynamics, public LaplacianSolidDat
 };
 
 
-
-class DiffusionUpdateCondition : public LocalDynamics, public LaplacianSolidDataInner
-{
-  public:
-    DiffusionUpdateCondition(BaseInnerRelation &inner_relation)
-        : LocalDynamics(inner_relation.getSPHBody()), LaplacianSolidDataInner(inner_relation),
-          pos_(particles_->pos_), phi_(particles_->phi_){};
-    virtual ~DiffusionUpdateCondition(){};
-
-    StdLargeVec<Vec2d> &pos_;
-    StdLargeVec<Real> &phi_;
-
-  protected:
-    void update(size_t index_i, Real dt = 0.0)
-    {
-         if ( (pos_[index_i][1] >= 0.8 * H) || (pos_[index_i][1] <= 0.2 * H))
-        {
-               phi_[index_i] = 1.0;
-                  
-        } 
-           if ((pos_[index_i][0] >= 0.9 * L) || (pos_[index_i][0] <= 0.1 * L))
-        {
-              
-              phi_[index_i] = 1.0;
-          
-        }   
-       
-       
-    };
-};
+ 
 
 class GetLaplacianTimeStepSize : public LocalDynamicsReduce<Real, ReduceMin>,
                                  public LaplacianSolidDataSimple
@@ -614,7 +511,7 @@ int main(int ac, char *av[])
     //----------------------------------------------------------------------
     //	Build up the environment of a SPHSystem.
     //----------------------------------------------------------------------
-    SPHSystem sph_system(system_domain_bounds, resolution_ref_large);
+    SPHSystem sph_system(system_domain_bounds, resolution_ref);
     sph_system.handleCommandlineOptions(ac, av);
     IOEnvironment io_environment(sph_system);
     //----------------------------------------------------------------------
@@ -622,11 +519,11 @@ int main(int ac, char *av[])
     //----------------------------------------------------------------------
     SolidBody diffusion_body(sph_system, makeShared<DiffusionBlock>("DiffusionBlock"));
      diffusion_body.defineParticlesAndMaterial<LaplacianDiffusionParticles, LaplacianDiffusionSolid>(rho0, diffusion_coeff, youngs_modulus, poisson_ratio);
-    diffusion_body.generateParticles<AnisotropicParticleGenerator>();
+    diffusion_body.generateParticles<ParticleGeneratorLattice>();
 
     SolidBody boundary_body(sph_system, makeShared<Boundary>("Boundary"));
     boundary_body.defineParticlesAndMaterial<SolidParticles, Solid>();
-    boundary_body.generateParticles<AnisotropicParticleGeneratorBoundary>();
+    boundary_body.generateParticles<ParticleGeneratorLattice>();
 
     //----------------------------------------------------------------------
     //	Particle and body creation of fluid observers.
@@ -655,8 +552,7 @@ int main(int ac, char *av[])
     Dynamics1Level<LaplacianBodyRelaxation> diffusion_relaxation(diffusion_block_complex);
 
     SimpleDynamics<DiffusionInitialCondition> setup_diffusion_initial_condition(diffusion_body_inner_relation);
-    SimpleDynamics<DiffusionUpdateCondition> update_diffusion_condition(diffusion_body_inner_relation);
-
+  
     diffusion_body.addBodyStateForRecording<Real>("Phi");
 
     //diffusion_body.addBodyStateForRecording<Real>("Gradient_x");
@@ -689,7 +585,7 @@ int main(int ac, char *av[])
     correct_configuration.exec();
     correct_second_configuration.exec();
     setup_diffusion_initial_condition.exec();
-   // update_diffusion_condition.exec();
+ 
     //----------------------------------------------------------------------
     //	Setup for time-stepping control
     //----------------------------------------------------------------------
@@ -709,7 +605,7 @@ int main(int ac, char *av[])
     //----------------------------------------------------------------------
     write_states.writeToFile();
     write_solid_temperature.writeToFile();
-    std::cout << transform_tensor << std::endl;
+ 
     //----------------------------------------------------------------------
     //	Main loop starts here.
     //----------------------------------------------------------------------
@@ -721,10 +617,9 @@ int main(int ac, char *av[])
             Real relaxation_time = 0.0;
             while (relaxation_time < Observe_time)
             {
-                dt = 0.01 *scaling_factor * get_time_step_size.exec();
+                dt = scaling_factor * get_time_step_size.exec();
                 diffusion_relaxation.exec(dt);
-          //    update_diffusion_condition.exec();
-
+       
                 if (ite < 3.0)
                 {
                     write_states.writeToFile(ite);
