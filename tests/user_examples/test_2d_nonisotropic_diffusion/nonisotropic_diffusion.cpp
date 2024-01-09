@@ -8,10 +8,10 @@ using namespace SPH;   // Namespace cite here
 //----------------------------------------------------------------------
 //	Basic geometry parameters and numerical setup.
 //----------------------------------------------------------------------
-Real L = 2.0;
-Real H = 2.0;
+Real L = 200.0;
+Real H = 200.0;
   
-int y_num = 40;
+int y_num = 400;
 Real resolution_ref = H / y_num;
  
 BoundingBox system_domain_bounds(Vec2d(-L, -H), Vec2d(2.0 * L, 2.0 * H));
@@ -20,7 +20,7 @@ Real BH = 3.0 * resolution_ref;
 //----------------------------------------------------------------------
 //	Basic parameters for material properties.
 //----------------------------------------------------------------------
-Real diffusion_coeff = 0.01;
+Real diffusion_coeff = 1.0;
 Real rho0 = 1.0;
 Real youngs_modulus = 1.0;
 Real poisson_ratio = 1.0;
@@ -29,10 +29,10 @@ Real poisson_ratio = 1.0;
 //----------------------------------------------------------------------
  
 Mat2d decomposed_transform_tensor{ 
-     {1.0,0.0},  
-     {0.0, 0.3},
+     {0.31623,0.0},  
+     {0.0, 0.1},
 }; 
-
+Mat2d inverse_decomposed_transform_tensor =  decomposed_transform_tensor.inverse();
 
 std::vector<Vec2d> diffusion_shape{Vec2d(0.0, 0.0), Vec2d(0.0, H), Vec2d(L, H), Vec2d(L, 0.0), Vec2d(0.0, 0.0)};
 
@@ -71,18 +71,38 @@ class TemperatureObserverParticleGenerator : public ObserverParticleGenerator
     explicit TemperatureObserverParticleGenerator(SPHBody &sph_body)
         : ObserverParticleGenerator(sph_body)
     {
-        size_t number_of_observation_points = 11;
-        Real range_of_measure = 0.9 * L;
-        Real start_of_measure = 0.05 * L;
+        size_t number_of_observation_points = 41;
+        Real range_of_measure = 1.0 *L;
+        Real start_of_measure = 0.0 * L;
 
         for (size_t i = 0; i < number_of_observation_points; ++i)
         {
-            Vec2d point_coordinate(range_of_measure * (Real)i / (Real)(number_of_observation_points - 1) + start_of_measure, 0.5 * H);
+            Vec2d point_coordinate(range_of_measure * (Real)i / (Real)(number_of_observation_points - 1) + start_of_measure, 0.5*H);
             positions_.push_back(point_coordinate);
         }
+
     }
 };
  
+class TemperatureObserverParticleGeneratorVertical: public ObserverParticleGenerator
+{
+  public:
+    explicit TemperatureObserverParticleGeneratorVertical(SPHBody &sph_body)
+        : ObserverParticleGenerator(sph_body)
+    {
+        size_t number_of_observation_points = 41;
+        Real range_of_measure = 1.0 * H;
+        Real start_of_measure = 0.0 * H;
+
+        for (size_t i = 0; i < number_of_observation_points; ++i)
+        {
+            Vec2d point_coordinate(0.5*L, range_of_measure * (Real)i / (Real)(number_of_observation_points - 1) + start_of_measure);
+            positions_.push_back(point_coordinate);
+        }
+        
+    }
+};
+
  class LaplacianDiffusionSolid : public LinearElasticSolid
 {
   public:
@@ -194,8 +214,7 @@ class NonisotropicKernelCorrectionMatrixComplexAC : public LocalDynamics, public
                 LocalDynamics(complex_relation.getInnerRelation().getSPHBody()), LaplacianSolidDataComplex(complex_relation),
                  B_(particles_->B_), A1_(particles_->A1_), A2_(particles_->A2_), A3_(particles_->A3_)
                  {
-                 inverse_decomposed_transform_tensor =  decomposed_transform_tensor.inverse();
- 
+                 
                  };
 
     virtual ~NonisotropicKernelCorrectionMatrixComplexAC(){};
@@ -204,8 +223,7 @@ class NonisotropicKernelCorrectionMatrixComplexAC : public LocalDynamics, public
     StdLargeVec<Mat2d> &B_;
     StdLargeVec<Vec2d> &A1_,&A2_,&A3_;
    
-    Mat2d inverse_decomposed_transform_tensor;
-
+    
     void initialization(size_t index_i, Real dt = 0.0)
     {
         Neighborhood &inner_neighborhood = inner_configuration_[index_i];
@@ -259,7 +277,7 @@ class LaplacianBodyRelaxation : public LocalDynamics, public LaplacianSolidDataC
         particles_->registerVariable(Laplacian_y, "Laplacian_y", [&](size_t i) -> Real { return Real(0.0); });
         particles_->registerVariable(Laplacian_xy, "Laplacian_xy", [&](size_t i) -> Real { return Real(0.0); });
 		particles_->registerVariable(diffusion_dt_, "diffusion_dt", [&](size_t i) -> Real { return Real(0.0); });
-		inverse_decomposed_transform_tensor =  decomposed_transform_tensor.inverse();
+ 
  
         diffusion_coeff_ = particles_->laplacian_solid_.DiffusivityCoefficient();
     };
@@ -278,8 +296,7 @@ class LaplacianBodyRelaxation : public LocalDynamics, public LaplacianSolidDataC
 
     StdLargeVec<Real> Laplacian_x, Laplacian_y, Laplacian_xy, diffusion_dt_;
 
-    Mat2d inverse_decomposed_transform_tensor;
-
+   
     Real diffusion_coeff_;
 
   protected:
@@ -470,9 +487,9 @@ class DiffusionInitialCondition : public LocalDynamics, public LaplacianSolidDat
   protected:
     void update(size_t index_i, Real dt = 0.0)
     {
-        if (pos_[index_i][0] >= 0.3 * L && pos_[index_i][0] <= 0.7 * L)
+        if (pos_[index_i][0] >= (0.5 * L- 0.5 ) && pos_[index_i][0] <=  (0.5 * L + 0.5 ))
         {
-            if (pos_[index_i][1] >= 0.3*H && pos_[index_i][1] <= 0.7 * H)
+            if (pos_[index_i][1] >=  (0.5 * H - 0.5) && pos_[index_i][1] <= (0.5* H + 0.5))
             {
                 phi_[index_i] = 1.0;
             }
@@ -534,8 +551,10 @@ int main(int ac, char *av[])
     //----------------------------------------------------------------------
     //	Particle and body creation of fluid observers.
     //----------------------------------------------------------------------
-    ObserverBody temperature_observer(sph_system, "TemperatureObserver");
+    ObserverBody temperature_observer(sph_system, "TemperatureObserverHorizontal");
+    ObserverBody temperature_observer_vertical(sph_system, "TemperatureObserverVertical");
     temperature_observer.generateParticles<TemperatureObserverParticleGenerator>();
+    temperature_observer_vertical.generateParticles<TemperatureObserverParticleGeneratorVertical>();
     //----------------------------------------------------------------------
     //	Define body relation map.
     //	The contact map gives the topological connections between the bodies.
@@ -546,6 +565,7 @@ int main(int ac, char *av[])
     //----------------------------------------------------------------------
     InnerRelation diffusion_body_inner_relation(diffusion_body);
     ContactRelation temperature_observer_contact(temperature_observer, {&diffusion_body});
+    ContactRelation temperature_observer_vertical_contact(temperature_observer_vertical, {&diffusion_body});
     ComplexRelation diffusion_block_complex(diffusion_body, {&boundary_body});
     //----------------------------------------------------------------------
     //	Define the main numerical methods used in the simulation.
@@ -580,6 +600,10 @@ int main(int ac, char *av[])
     BodyStatesRecordingToVtp write_states(io_environment, sph_system.real_bodies_);
     RegressionTestEnsembleAverage<ObservedQuantityRecording<Real>>
         write_solid_temperature("Phi", io_environment, temperature_observer_contact);
+
+    RegressionTestEnsembleAverage<ObservedQuantityRecording<Real>>
+        write_solid_temperature_vertical("Phi", io_environment, temperature_observer_vertical_contact);
+
     //----------------------------------------------------------------------
     //	Prepare the simulation with cell linked list, configuration
     //	and case specified initial condition if necessary.
@@ -596,7 +620,7 @@ int main(int ac, char *av[])
     //	Setup for time-stepping control
     //----------------------------------------------------------------------
     int ite = 1;
-    Real T0 = 10.0;
+    Real T0 = 1920.0;
     Real end_time = T0;
     Real Output_Time = 0.1 * end_time;
     Real Observe_time = 0.1 * Output_Time;
@@ -611,7 +635,7 @@ int main(int ac, char *av[])
     //----------------------------------------------------------------------
     write_states.writeToFile();
     write_solid_temperature.writeToFile();
- 
+ write_solid_temperature_vertical.writeToFile();
     //----------------------------------------------------------------------
     //	Main loop starts here.
     //----------------------------------------------------------------------
@@ -626,11 +650,7 @@ int main(int ac, char *av[])
                 dt =   get_time_step_size.exec();
                 diffusion_relaxation.exec(dt);
        
-                if (ite < 3.0)
-                {
-                    write_states.writeToFile(ite);
-                    write_solid_temperature.writeToFile(ite);
-                }
+             
                 if (ite % 1000 == 0)
                 {
                     std::cout << "N=" << ite << " Time: "
@@ -645,6 +665,7 @@ int main(int ac, char *av[])
                 GlobalStaticVariables::physical_time_ += dt;
             } 
 			write_solid_temperature.writeToFile(ite);
+            write_solid_temperature_vertical.writeToFile(ite);
         }
 
         TickCount t2 = TickCount::now();
