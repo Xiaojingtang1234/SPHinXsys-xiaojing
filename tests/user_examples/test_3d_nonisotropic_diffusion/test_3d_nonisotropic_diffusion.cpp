@@ -8,24 +8,17 @@ using namespace SPH;   // Namespace cite here
 //----------------------------------------------------------------------
 //	Basic geometry parameters and numerical setup.
 //----------------------------------------------------------------------
-Real L = 2.0;
-Real H = 0.4;
+Real L = 10.0;
+Real H = 10.0;
+Real W = 10.0;
  
-int resolution(20);
-
-int z_num = 20;
-Real ratio_ = 1.0;
-Real resolution_ref = H / z_num;
-Real resolution_ref_large = ratio_ * resolution_ref;
-int x_num = L / resolution_ref_large;
-Vec3d scaling_vector = Vec3d(1.0, 1.0, 1.0 / ratio_); // scaling_vector for defining the anisotropic kernel
-Real scaling_factor = 1.0 / ratio_;              // scaling factor to calculate the time step
-
-
-Real V_j = resolution_ref_large * resolution_ref_large * resolution_ref;
-BoundingBox system_domain_bounds(Vec3d(-L, -L, -H), Vec3d(2.0 * L, 2.0 * L,  2.0 * H));
-Real BL = 3.0 * resolution_ref_large;
+int y_num = 20;
+Real resolution_ref = H / y_num;
+ 
+BoundingBox system_domain_bounds(Vec3d(-L, -H,-W), Vec3d(2.0 * L, 2.0 * H, 2.0 * W));
+Real BL = 3.0 * resolution_ref;
 Real BH = 3.0 * resolution_ref;
+Real BW = 3.0 * resolution_ref;
 //----------------------------------------------------------------------
 //	Basic parameters for material properties.
 //----------------------------------------------------------------------
@@ -36,52 +29,27 @@ Real poisson_ratio = 1.0;
 //----------------------------------------------------------------------
 //	Geometric shapes used in the case.
 //----------------------------------------------------------------------
+ 
+Mat3d decomposed_transform_tensor{ 
+     {1.0, 0.0, 0.0},  
+     {0.0, 1.0, 0.0},
+     {0.0, 0.0, 1.0},
+}; 
+Mat3d inverse_decomposed_transform_tensor =  decomposed_transform_tensor.inverse();
 
-Vec3d halfsize_membrane(0.5 * L, 0.5 * L, 0.5 * H);
-Vec3d translation_membrane(0.5 * L, 0.5 * L, 0.5 * H);
-
+Vec3d halfsize_membrane(0.5 * L, 0.5 * H, 0.5 * W);
+Vec3d translation_membrane(0.5 * L, 0.5 * H, 0.5 * W);
 
 class DiffusionBlock : public ComplexShape
 {
 public:
 	explicit DiffusionBlock(const std::string &shape_name) : ComplexShape(shape_name)
 	{
-		add<TriangleMeshShapeBrick>(halfsize_membrane, resolution, translation_membrane);
+		add<TriangleMeshShapeBrick>(halfsize_membrane, resolution_ref, translation_membrane);
 	}
 };
+ 
 
-AnisotropicKernel<KernelWendlandC2>
-    wendland(1.15 * resolution_ref_large, scaling_vector, Vec3d(0.0, 0.0, 0.0)); // no rotation introduced
-
-Mat3d transform_tensor = wendland.getCoordinateTransformationTensorG(scaling_vector, Vec3d(0.0, 0.0, 0.0)); // tensor
-
-
-/** Define application dependent particle generator for thin structure. */
-class AnisotropicParticleGenerator : public ParticleGenerator
-{
-public:
-	AnisotropicParticleGenerator(SPHBody &sph_body) : ParticleGenerator(sph_body){};
-
-	virtual void initializeGeometricVariables() override
-	{
-		// set particles directly
-		for (int i = 0; i < x_num; i++)
-		{
-			for (int j = 0; j < x_num; j++)
-			{
-				for (int k = 0; k < z_num; k++)
-				{
-					Real x = (i + 0.5) * resolution_ref_large;
-					Real y = (j + 0.5) * resolution_ref_large;
-					Real z = (k + 0.5) * resolution_ref;
-					initializePositionAndVolumetricMeasure(Vecd(x, y, z),
-						(resolution_ref * resolution_ref_large * resolution_ref_large));
-				
-				}
-			}
-		}
-	}
-};
 //----------------------------------------------------------------------
 //	An observer particle generator.
 //----------------------------------------------------------------------
@@ -91,20 +59,39 @@ class TemperatureObserverParticleGenerator : public ObserverParticleGenerator
     explicit TemperatureObserverParticleGenerator(SPHBody &sph_body)
         : ObserverParticleGenerator(sph_body)
     {
-        size_t number_of_observation_points = 11;
-        Real range_of_measure = 0.9 * L;
-        Real start_of_measure = 0.05 * L;
+        size_t number_of_observation_points = 41;
+        Real range_of_measure = 1.0 *L;
+        Real start_of_measure = 0.0 * L;
 
         for (size_t i = 0; i < number_of_observation_points; ++i)
         {
-            Vec3d point_coordinate(range_of_measure * (Real)i / (Real)(number_of_observation_points - 1) + start_of_measure, 0.5*L, 0.5 * H);
+            Vec3d point_coordinate(range_of_measure * (Real)i / (Real)(number_of_observation_points - 1) + start_of_measure, 0.5*H, 0.5*W);
             positions_.push_back(point_coordinate);
         }
+
+    }
+};
+ 
+class TemperatureObserverParticleGeneratorVertical: public ObserverParticleGenerator
+{
+  public:
+    explicit TemperatureObserverParticleGeneratorVertical(SPHBody &sph_body)
+        : ObserverParticleGenerator(sph_body)
+    {
+        size_t number_of_observation_points = 41;
+        Real range_of_measure = 1.0 * H;
+        Real start_of_measure = 0.0 * H;
+
+        for (size_t i = 0; i < number_of_observation_points; ++i)
+        {
+            Vec3d point_coordinate(0.5*L, range_of_measure * (Real)i / (Real)(number_of_observation_points - 1) + start_of_measure, 0.5 *W);
+            positions_.push_back(point_coordinate);
+        }
+        
     }
 };
 
-
-class LaplacianDiffusionSolid : public LinearElasticSolid
+ class LaplacianDiffusionSolid : public LinearElasticSolid
 {
   public:
     LaplacianDiffusionSolid(Real rho0, Real coeff, Real youngs_modulus, Real poisson_ratio)
@@ -131,7 +118,7 @@ class LaplacianDiffusionParticles : public ElasticSolidParticles
 
     virtual void initializeOtherVariables()
     {
-        ElasticSolidParticles::initializeOtherVariables();
+      ElasticSolidParticles::initializeOtherVariables();
         registerVariable(phi_, "Phi", [&](size_t i) -> Real { return Real(0.0); });
         registerVariable(A1_, "FirstOrderCorrectionVectorA1", [&](size_t i) -> Vec3d { return Eps * Vec3d::Identity(); });
         registerVariable(A2_, "FirstOrderCorrectionVectorA2", [&](size_t i) -> Vec3d { return Eps * Vec3d::Identity(); });
@@ -156,7 +143,6 @@ class LaplacianDiffusionParticles : public ElasticSolidParticles
     StdLargeVec<Vec3d> A4_;
     StdLargeVec<Vec3d> A5_;
     StdLargeVec<Vec3d> A6_;
-
 };
 
 typedef DataDelegateSimple<LaplacianDiffusionParticles> LaplacianSolidDataSimple;
@@ -169,51 +155,38 @@ typedef DataDelegateComplex<BaseParticles, BaseParticles>GeneralDataDelegateComp
 class NonisotropicKernelCorrectionMatrixInner : public LocalDynamics, public GeneralDataDelegateInner
 {
   public:
-    NonisotropicKernelCorrectionMatrixInner(BaseInnerRelation &inner_relation, Real alpha = Real(0))
+        NonisotropicKernelCorrectionMatrixInner(BaseInnerRelation &inner_relation, Real alpha = Real(0))
         : LocalDynamics(inner_relation.getSPHBody()),
           GeneralDataDelegateInner(inner_relation), 
-		B_(*particles_->registerSharedVariable<Mat3d>("KernelCorrectionMatrix")) 
-        {
-            
-            particles_->registerVariable(show_neighbor_, "ShowingNeighbor", [&](size_t i) -> Real
-                    { return Real(0.0); });
-        };
+		B_(*particles_->registerSharedVariable<Mat3d>("KernelCorrectionMatrix"))   {};
+       
 
     virtual ~NonisotropicKernelCorrectionMatrixInner(){};
 
   protected:
 	  StdLargeVec<Mat3d> &B_;
-     StdLargeVec<Real> show_neighbor_;
-
+ 
 	  void interaction(size_t index_i, Real dt = 0.0)
 	  {
 		  Mat3d local_configuration = Eps * Mat3d::Identity();
 		  const Neighborhood &inner_neighborhood = inner_configuration_[index_i];
 		  for (size_t n = 0; n != inner_neighborhood.current_size_; ++n)
 		  {
-            size_t index_j = inner_neighborhood.j_[n];
-            if (index_i == 92000)
-            {
-                show_neighbor_[index_j] = 1.0;
-            }
-			  Vec3d gradW_ij = inner_neighborhood.dW_ijV_j_[n] * inner_neighborhood.e_ij_[n];
+			Vec3d gradW_ij = inner_neighborhood.dW_ijV_j_[n] * inner_neighborhood.e_ij_[n];
  
-			  Vec3d r_ji = inner_neighborhood.r_ij_vector_[n];
-			  local_configuration -= r_ji * gradW_ij.transpose();
+			Vec3d r_ji = inner_neighborhood.r_ij_vector_[n];
+			local_configuration -= r_ji * gradW_ij.transpose();
 		  }
 		  B_[index_i] = local_configuration;
 
 	  };
  
-
 	void update(size_t index_i, Real dt)
 	{
 		Mat3d inverse = B_[index_i].inverse();
 		B_[index_i] = inverse;	
 	}
 };
-
-
 
 class NonisotropicKernelCorrectionMatrixInnerAC : public LocalDynamics, public  LaplacianSolidDataInner
 {
@@ -231,12 +204,12 @@ class NonisotropicKernelCorrectionMatrixInnerAC : public LocalDynamics, public  
 
     void interaction(size_t index_i, Real dt = 0.0)
     {
-        Neighborhood &inner_neighborhood = inner_configuration_[index_i];
-        for (size_t n = 0; n != inner_neighborhood.current_size_; ++n) // this is ik
+           Neighborhood &inner_neighborhood = inner_configuration_[index_i];
+         for (size_t n = 0; n != inner_neighborhood.current_size_; ++n) // this is ik
         {
             Vec3d gradW_ikV_k = inner_neighborhood.dW_ijV_j_[n] * inner_neighborhood.e_ij_[n];
-            Vec3d r_ik = -inner_neighborhood.r_ij_vector_[n];
-
+            Vec3d r_ik = inverse_decomposed_transform_tensor * -inner_neighborhood.r_ij_vector_[n];
+            
             A1_[index_i] += r_ik[0] * r_ik[0] * (B_[index_i].transpose() * gradW_ikV_k);
             A2_[index_i] += r_ik[1] * r_ik[1] * (B_[index_i].transpose() * gradW_ikV_k);
             A3_[index_i] += r_ik[2] * r_ik[2] * (B_[index_i].transpose() * gradW_ikV_k);
@@ -244,22 +217,25 @@ class NonisotropicKernelCorrectionMatrixInnerAC : public LocalDynamics, public  
             A4_[index_i] += r_ik[0] * r_ik[1] * (B_[index_i].transpose() * gradW_ikV_k);
             A5_[index_i] += r_ik[1] * r_ik[2] * (B_[index_i].transpose() * gradW_ikV_k);
             A6_[index_i] += r_ik[2] * r_ik[0] * (B_[index_i].transpose() * gradW_ikV_k);
-        }
+          }
     };
-  
+
+	void update(size_t index_i, Real dt = 0.0) {};
 };
 
 using Mat6d = Eigen::Matrix<Real, 6, 6>;
 using Vec6d = Eigen::Matrix<Real, 6, 1>;
+
+ 
 class LaplacianBodyRelaxation : public LocalDynamics, public LaplacianSolidDataInner
 {
-  public:
+    public:
    LaplacianBodyRelaxation(BaseInnerRelation &inner_relation)
         : LocalDynamics(inner_relation.getSPHBody()), LaplacianSolidDataInner(inner_relation),
           pos_(particles_->pos_), B_(particles_->B_), phi_(particles_->phi_), A1_(particles_->A1_), A2_(particles_->A2_), A3_(particles_->A3_),
            A4_(particles_->A4_), A5_(particles_->A5_), A6_(particles_->A6_),  particle_number(inner_relation.getSPHBody().getBaseParticles().real_particles_bound_)
-    {
-        particles_->registerVariable(E_, "FirstOrderCorrectionVectorE", [&](size_t i) -> Vec3d { return Eps * Vec3d::Identity(); });
+    {    
+       particles_->registerVariable(E_, "FirstOrderCorrectionVectorE", [&](size_t i) -> Vec3d { return Eps * Vec3d::Identity(); });
 
         std::cout<<particle_number<<std::endl;
 
@@ -267,18 +243,19 @@ class LaplacianBodyRelaxation : public LocalDynamics, public LaplacianSolidDataI
         particles_->registerVariable(Laplacian_y, "Laplacian_y", [&](size_t i) -> Real { return Real(0.0); });
         particles_->registerVariable(Laplacian_z, "Laplacian_z", [&](size_t i) -> Real { return Real(0.0); });
 		particles_->registerVariable(diffusion_dt_, "diffusion_dt", [&](size_t i) -> Real { return Real(0.0); });
-
-         for (size_t i = 0; i != particle_number; ++i)
+    
+        for (size_t i = 0; i != particle_number; ++i)
         {
             SC_.push_back(Mat6d::Identity()); 
             G_.push_back(Vec6d::Identity()); 
             Laplacian_.push_back(Vec6d::Identity()); 
         }
-		
+ 
         diffusion_coeff_ = particles_->laplacian_solid_.DiffusivityCoefficient();
     };
     virtual ~LaplacianBodyRelaxation(){};
 
+ 
     StdLargeVec<Vec3d> &pos_;
     StdLargeVec<Mat3d> &B_;
     StdLargeVec<Real> &phi_;
@@ -286,13 +263,14 @@ class LaplacianBodyRelaxation : public LocalDynamics, public LaplacianSolidDataI
     StdLargeVec<Vec3d> &A1_,&A2_,&A3_, &A4_,&A5_,&A6_;
     StdLargeVec<Vec3d> E_;
     
-     StdLargeVec<Mat6d> SC_;
-     StdLargeVec<Vec6d> G_; 
-     StdLargeVec<Vec6d> Laplacian_;
+    StdLargeVec<Mat6d> SC_;
+    StdLargeVec<Vec6d> G_; 
+    StdLargeVec<Vec6d> Laplacian_;
     size_t particle_number;
 
     StdLargeVec<Real> Laplacian_x, Laplacian_y, Laplacian_z, diffusion_dt_;
     Real diffusion_coeff_;
+
 
   protected:
     void initialization(size_t index_i, Real dt = 0.0){};
@@ -306,7 +284,7 @@ class LaplacianBodyRelaxation : public LocalDynamics, public LaplacianSolidDataI
             size_t index_k = inner_neighborhood.j_[n];
             Vec3d gradW_ikV_k = inner_neighborhood.dW_ijV_j_[n] * inner_neighborhood.e_ij_[n];
 
-            E_rate += (phi_[index_k] - phi_[index_i]) * (B_[index_i].transpose() * gradW_ikV_k); 
+            E_rate += (phi_[index_k] - phi_[index_i]) * (B_[index_i].transpose() * gradW_ikV_k); // HOW TO DEFINE IT???
         }
         E_[index_i] = E_rate;
 
@@ -317,15 +295,17 @@ class LaplacianBodyRelaxation : public LocalDynamics, public LaplacianSolidDataI
          for (size_t n = 0; n != inner_neighborhood.current_size_; ++n) // this is ik
         {
             size_t index_j = inner_neighborhood.j_[n];
-            Vec3d r_ij = -inner_neighborhood.r_ij_vector_[n];
-            Vec3d gradW_ijV_j = inner_neighborhood.dW_ijV_j_[n] * inner_neighborhood.e_ij_[n];
+            Vec3d r_ij = inverse_decomposed_transform_tensor *  -inner_neighborhood.r_ij_vector_[n];
+
+           Vec3d gradW_ijV_j = inner_neighborhood.dW_ijV_j_[n] * inner_neighborhood.e_ij_[n];
             Vec6d S_ = Vec6d(r_ij[0] * r_ij[0], r_ij[1] * r_ij[1], r_ij[2] * r_ij[2], r_ij[0] * r_ij[1], r_ij[1] * r_ij[2], r_ij[2] * r_ij[0]);
             Scalar_function_H = r_ij.dot(B_[index_i].transpose() * gradW_ijV_j) / pow(r_ij.norm(), 4.0);
-			 
-            Real FF_ = 2.0 * (phi_[index_j] - phi_[index_i] - r_ij.dot(E_[index_i]));
+			  
+           Real FF_ = 2.0 * (phi_[index_j] - phi_[index_i] - r_ij.dot(E_[index_i]));
             Right_term += S_ * Scalar_function_H * FF_;
-            
+           
              //TO DO
+             
             Vec6d C_ = Vec6d::Zero();
             C_[0] = (r_ij[0] * r_ij[0]- r_ij.dot(A1_[index_i]));
             C_[1] = (r_ij[1] * r_ij[1]- r_ij.dot(A2_[index_i]));
@@ -334,6 +314,7 @@ class LaplacianBodyRelaxation : public LocalDynamics, public LaplacianSolidDataI
             C_[4] = (r_ij[1] * r_ij[2]- r_ij.dot(A5_[index_i]));
             C_[5] = (r_ij[2] * r_ij[0]- r_ij.dot(A6_[index_i]));
             Left_term += S_ * Scalar_function_H* C_.transpose();   
+
 
         }
         
@@ -346,17 +327,16 @@ class LaplacianBodyRelaxation : public LocalDynamics, public LaplacianSolidDataI
         Laplacian_y[index_i] = Laplacian_[index_i][1];
         Laplacian_z[index_i] = Laplacian_[index_i][2];
 		diffusion_dt_[index_i] = Laplacian_[index_i][0] + Laplacian_[index_i][1]+ Laplacian_[index_i][2];
-        
-    
     };
- 
-    void update(size_t index_i, Real dt = 0.0)
+
+     void update(size_t index_i, Real dt = 0.0)
     {
         phi_[index_i] += dt * diffusion_dt_[index_i];
-    };
+    }; 
 };
  
- class DiffusionInitialCondition : public LocalDynamics, public LaplacianSolidDataInner
+ 
+class DiffusionInitialCondition : public LocalDynamics, public LaplacianSolidDataInner
 {
   public:
     DiffusionInitialCondition(BaseInnerRelation &inner_relation)
@@ -370,24 +350,24 @@ class LaplacianBodyRelaxation : public LocalDynamics, public LaplacianSolidDataI
   protected:
     void update(size_t index_i, Real dt = 0.0)
     {
-         if (pos_[index_i][0] >= 0.3 * L && pos_[index_i][0] <= 0.7 * L)
+        if (pos_[index_i][0] >= (0.5 * L- 0.5 ) && pos_[index_i][0] <=  (0.5 * L + 0.5 ))
         {
-            if (pos_[index_i][1] >= 0.3*L && pos_[index_i][1] <= 0.7 * L)
+            if (pos_[index_i][1] >=  (0.5 * H - 0.5) && pos_[index_i][1] <= (0.5* H + 0.5))
             {
-                if (pos_[index_i][2] >= 0.3*H && pos_[index_i][2] <= 0.7 * H)
+                if (pos_[index_i][2] >=  (0.5 *W - 0.5) && pos_[index_i][2] <= (0.5* W + 0.5))
                 {
-                    phi_[index_i] = 1.0;
+                phi_[index_i] = 1.0;
                 }
             }
           
         } 
-     //  phi_[index_i] = 1.0 * pos_[index_i][0] * pos_[index_i][0];
-       
+      
     };
 };
 
 
  
+
 class GetLaplacianTimeStepSize : public LocalDynamicsReduce<Real, ReduceMin>,
                                  public LaplacianSolidDataSimple
 {
@@ -419,23 +399,23 @@ int main(int ac, char *av[])
     //----------------------------------------------------------------------
     //	Build up the environment of a SPHSystem.
     //----------------------------------------------------------------------
-    SPHSystem sph_system(system_domain_bounds, resolution_ref_large);
+    SPHSystem sph_system(system_domain_bounds, resolution_ref);
     sph_system.handleCommandlineOptions(ac, av);
     IOEnvironment io_environment(sph_system);
     //----------------------------------------------------------------------
     //	Creating body, materials and particles.
     //----------------------------------------------------------------------
- 
-    SolidBody diffusion_body(sph_system, makeShared<DiffusionBlock>("3DlaplacianDiffusion"));
-    diffusion_body.sph_adaptation_->resetKernel<AnisotropicKernel<KernelWendlandC2>>(scaling_vector);
+    SolidBody diffusion_body(sph_system, makeShared<DiffusionBlock>("3DnonisotropicDiffusion"));
     diffusion_body.defineParticlesAndMaterial<LaplacianDiffusionParticles, LaplacianDiffusionSolid>(rho0, diffusion_coeff, youngs_modulus, poisson_ratio);
-    diffusion_body.generateParticles<AnisotropicParticleGenerator>();
- 
+    diffusion_body.generateParticles<ParticleGeneratorLattice>();
+  
     //----------------------------------------------------------------------
     //	Particle and body creation of fluid observers.
     //----------------------------------------------------------------------
-    ObserverBody temperature_observer(sph_system, "TemperatureObserver");
+    ObserverBody temperature_observer(sph_system, "TemperatureObserverHorizontal");
+    ObserverBody temperature_observer_vertical(sph_system, "TemperatureObserverVertical");
     temperature_observer.generateParticles<TemperatureObserverParticleGenerator>();
+    temperature_observer_vertical.generateParticles<TemperatureObserverParticleGeneratorVertical>();
     //----------------------------------------------------------------------
     //	Define body relation map.
     //	The contact map gives the topological connections between the bodies.
@@ -446,6 +426,8 @@ int main(int ac, char *av[])
     //----------------------------------------------------------------------
     InnerRelation diffusion_body_inner_relation(diffusion_body);
     ContactRelation temperature_observer_contact(temperature_observer, {&diffusion_body});
+    ContactRelation temperature_observer_vertical_contact(temperature_observer_vertical, {&diffusion_body});
+ 
     //----------------------------------------------------------------------
     //	Define the main numerical methods used in the simulation.
     //	Note that there may be data dependence on the constructors of these methods.
@@ -454,20 +436,19 @@ int main(int ac, char *av[])
 	InteractionWithUpdate<NonisotropicKernelCorrectionMatrixInner> correct_configuration(diffusion_body_inner_relation);
 	InteractionDynamics<NonisotropicKernelCorrectionMatrixInnerAC> correct_second_configuration(diffusion_body_inner_relation);
     ReduceDynamics<GetLaplacianTimeStepSize> get_time_step_size(diffusion_body);
-    Dynamics1Level<LaplacianBodyRelaxation> diffusion_relaxation(diffusion_body_inner_relation);
+     Dynamics1Level<LaplacianBodyRelaxation> diffusion_relaxation(diffusion_body_inner_relation);
 
     SimpleDynamics<DiffusionInitialCondition> setup_diffusion_initial_condition(diffusion_body_inner_relation);
-    
+  
     diffusion_body.addBodyStateForRecording<Real>("Phi");
 
+ 
     diffusion_body.addBodyStateForRecording<Real>("Laplacian_x");
     diffusion_body.addBodyStateForRecording<Real>("Laplacian_y");
     diffusion_body.addBodyStateForRecording<Mat3d>("KernelCorrectionMatrix");
-	diffusion_body.addBodyStateForRecording<Real>("Laplacian_z");
-    diffusion_body.addBodyStateForRecording<Real>("diffusion_dt");
-    
-    diffusion_body.addBodyStateForRecording<Real>("ShowingNeighbor");
-
+   
+	diffusion_body.addBodyStateForRecording<Real>("diffusion_dt");
+ 
 	
 	PeriodicConditionUsingCellLinkedList periodic_condition_y(diffusion_body, diffusion_body.getBodyShapeBounds(), yAxis);
 	PeriodicConditionUsingCellLinkedList periodic_condition_x(diffusion_body, diffusion_body.getBodyShapeBounds(), xAxis);
@@ -479,23 +460,28 @@ int main(int ac, char *av[])
     BodyStatesRecordingToVtp write_states(io_environment, sph_system.real_bodies_);
     RegressionTestEnsembleAverage<ObservedQuantityRecording<Real>>
         write_solid_temperature("Phi", io_environment, temperature_observer_contact);
+
+    RegressionTestEnsembleAverage<ObservedQuantityRecording<Real>>
+        write_solid_temperature_vertical("Phi", io_environment, temperature_observer_vertical_contact);
+
     //----------------------------------------------------------------------
     //	Prepare the simulation with cell linked list, configuration
     //	and case specified initial condition if necessary.
     //----------------------------------------------------------------------
     sph_system.initializeSystemCellLinkedLists();
-	periodic_condition_x.update_cell_linked_list_.exec();
+	periodic_condition_y.update_cell_linked_list_.exec();
     periodic_condition_y.update_cell_linked_list_.exec();
     periodic_condition_z.update_cell_linked_list_.exec();
     sph_system.initializeSystemConfigurations();
     correct_configuration.exec();
     correct_second_configuration.exec();
     setup_diffusion_initial_condition.exec();
-     //----------------------------------------------------------------------
+ 
+    //----------------------------------------------------------------------
     //	Setup for time-stepping control
     //----------------------------------------------------------------------
     int ite = 1;
-    Real T0 = 10.0;
+    Real T0 = 1000.0;
     Real end_time = T0;
     Real Output_Time = 0.1 * end_time;
     Real Observe_time = 0.1 * Output_Time;
@@ -510,7 +496,7 @@ int main(int ac, char *av[])
     //----------------------------------------------------------------------
     write_states.writeToFile();
     write_solid_temperature.writeToFile();
-    std::cout << transform_tensor << std::endl;
+    write_solid_temperature_vertical.writeToFile();
     //----------------------------------------------------------------------
     //	Main loop starts here.
     //----------------------------------------------------------------------
@@ -522,14 +508,10 @@ int main(int ac, char *av[])
             Real relaxation_time = 0.0;
             while (relaxation_time < Observe_time)
             {
-                dt = 0.1*scaling_factor * get_time_step_size.exec();
+                dt =   get_time_step_size.exec();
                 diffusion_relaxation.exec(dt);
+       
              
-                if (ite < 3.0)
-                {
-                    write_states.writeToFile(ite);
-                    write_solid_temperature.writeToFile(ite);
-                }
                 if (ite % 1000 == 0)
                 {
                     std::cout << "N=" << ite << " Time: "
@@ -544,6 +526,7 @@ int main(int ac, char *av[])
                 GlobalStaticVariables::physical_time_ += dt;
             } 
 			write_solid_temperature.writeToFile(ite);
+            write_solid_temperature_vertical.writeToFile(ite);
         }
 
         TickCount t2 = TickCount::now();
