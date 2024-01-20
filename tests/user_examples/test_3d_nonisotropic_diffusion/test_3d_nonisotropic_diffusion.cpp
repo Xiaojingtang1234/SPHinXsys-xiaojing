@@ -8,11 +8,11 @@ using namespace SPH;   // Namespace cite here
 //----------------------------------------------------------------------
 //	Basic geometry parameters and numerical setup.
 //----------------------------------------------------------------------
-Real L = 10.0;
-Real H = 10.0;
-Real W = 10.0;
+Real L = 50.0;
+Real H = L;
+Real W = L;
  
-int y_num = 20;
+int y_num = 100;
 Real resolution_ref = H / y_num;
  
 BoundingBox system_domain_bounds(Vec3d(-L, -H,-W), Vec3d(2.0 * L, 2.0 * H, 2.0 * W));
@@ -22,7 +22,7 @@ Real BW = 3.0 * resolution_ref;
 //----------------------------------------------------------------------
 //	Basic parameters for material properties.
 //----------------------------------------------------------------------
-Real diffusion_coeff = 1.0;
+Real diffusion_coeff = 1;
 Real rho0 = 1.0;
 Real youngs_modulus = 1.0;
 Real poisson_ratio = 1.0;
@@ -31,9 +31,9 @@ Real poisson_ratio = 1.0;
 //----------------------------------------------------------------------
  
 Mat3d decomposed_transform_tensor{ 
-     {1.0, 0.0, 0.0},  
-     {0.0, 1.0, 0.0},
-     {0.0, 0.0, 1.0},
+     {0.1, 0.0, 0.0},  
+     {0.0,0.05, 0.0},
+     {0.0, 0.0, 0.05},
 }; 
 Mat3d inverse_decomposed_transform_tensor =  decomposed_transform_tensor.inverse();
 
@@ -53,13 +53,13 @@ public:
 //----------------------------------------------------------------------
 //	An observer particle generator.
 //----------------------------------------------------------------------
-class TemperatureObserverParticleGenerator : public ObserverParticleGenerator
+class TemperatureObserverParticleGeneratorX : public ObserverParticleGenerator
 {
   public:
-    explicit TemperatureObserverParticleGenerator(SPHBody &sph_body)
+    explicit TemperatureObserverParticleGeneratorX(SPHBody &sph_body)
         : ObserverParticleGenerator(sph_body)
     {
-        size_t number_of_observation_points = 41;
+        size_t number_of_observation_points = 101;
         Real range_of_measure = 1.0 *L;
         Real start_of_measure = 0.0 * L;
 
@@ -72,19 +72,38 @@ class TemperatureObserverParticleGenerator : public ObserverParticleGenerator
     }
 };
  
-class TemperatureObserverParticleGeneratorVertical: public ObserverParticleGenerator
+class TemperatureObserverParticleGeneratorY: public ObserverParticleGenerator
 {
   public:
-    explicit TemperatureObserverParticleGeneratorVertical(SPHBody &sph_body)
+    explicit TemperatureObserverParticleGeneratorY(SPHBody &sph_body)
         : ObserverParticleGenerator(sph_body)
     {
-        size_t number_of_observation_points = 41;
+        size_t number_of_observation_points = 101;
         Real range_of_measure = 1.0 * H;
         Real start_of_measure = 0.0 * H;
 
         for (size_t i = 0; i < number_of_observation_points; ++i)
         {
             Vec3d point_coordinate(0.5*L, range_of_measure * (Real)i / (Real)(number_of_observation_points - 1) + start_of_measure, 0.5 *W);
+            positions_.push_back(point_coordinate);
+        }
+        
+    }
+};
+
+class TemperatureObserverParticleGeneratorZ: public ObserverParticleGenerator
+{
+  public:
+    explicit TemperatureObserverParticleGeneratorZ(SPHBody &sph_body)
+        : ObserverParticleGenerator(sph_body)
+    {
+        size_t number_of_observation_points = 101;
+        Real range_of_measure = 1.0 * W;
+        Real start_of_measure = 0.0 * W;
+
+        for (size_t i = 0; i < number_of_observation_points; ++i)
+        {
+            Vec3d point_coordinate(0.5*L,0.5 *H, range_of_measure * (Real)i / (Real)(number_of_observation_points - 1) + start_of_measure);
             positions_.push_back(point_coordinate);
         }
         
@@ -412,10 +431,12 @@ int main(int ac, char *av[])
     //----------------------------------------------------------------------
     //	Particle and body creation of fluid observers.
     //----------------------------------------------------------------------
-    ObserverBody temperature_observer(sph_system, "TemperatureObserverHorizontal");
-    ObserverBody temperature_observer_vertical(sph_system, "TemperatureObserverVertical");
-    temperature_observer.generateParticles<TemperatureObserverParticleGenerator>();
-    temperature_observer_vertical.generateParticles<TemperatureObserverParticleGeneratorVertical>();
+    ObserverBody temperature_observer_x(sph_system, "TemperatureObserverX");
+    ObserverBody temperature_observer_y(sph_system, "TemperatureObserverY");
+    ObserverBody temperature_observer_z(sph_system, "TemperatureObserverZ");
+    temperature_observer_x.generateParticles<TemperatureObserverParticleGeneratorX>();
+    temperature_observer_y.generateParticles<TemperatureObserverParticleGeneratorY>();
+    temperature_observer_z.generateParticles<TemperatureObserverParticleGeneratorZ>();
     //----------------------------------------------------------------------
     //	Define body relation map.
     //	The contact map gives the topological connections between the bodies.
@@ -425,8 +446,9 @@ int main(int ac, char *av[])
     //  inner and contact relations.
     //----------------------------------------------------------------------
     InnerRelation diffusion_body_inner_relation(diffusion_body);
-    ContactRelation temperature_observer_contact(temperature_observer, {&diffusion_body});
-    ContactRelation temperature_observer_vertical_contact(temperature_observer_vertical, {&diffusion_body});
+    ContactRelation contact_temperature_observer_x(temperature_observer_x, {&diffusion_body});
+    ContactRelation contact_temperature_observer_y(temperature_observer_y, {&diffusion_body});
+    ContactRelation contact_temperature_observer_z(temperature_observer_z, {&diffusion_body});
  
     //----------------------------------------------------------------------
     //	Define the main numerical methods used in the simulation.
@@ -443,11 +465,11 @@ int main(int ac, char *av[])
     diffusion_body.addBodyStateForRecording<Real>("Phi");
 
  
-    diffusion_body.addBodyStateForRecording<Real>("Laplacian_x");
-    diffusion_body.addBodyStateForRecording<Real>("Laplacian_y");
-    diffusion_body.addBodyStateForRecording<Mat3d>("KernelCorrectionMatrix");
+   // diffusion_body.addBodyStateForRecording<Real>("Laplacian_x");
+   // diffusion_body.addBodyStateForRecording<Real>("Laplacian_y");
+   // diffusion_body.addBodyStateForRecording<Mat3d>("KernelCorrectionMatrix");
    
-	diffusion_body.addBodyStateForRecording<Real>("diffusion_dt");
+	//diffusion_body.addBodyStateForRecording<Real>("diffusion_dt");
  
 	
 	PeriodicConditionUsingCellLinkedList periodic_condition_y(diffusion_body, diffusion_body.getBodyShapeBounds(), yAxis);
@@ -459,24 +481,29 @@ int main(int ac, char *av[])
     //----------------------------------------------------------------------
     BodyStatesRecordingToVtp write_states(io_environment, sph_system.real_bodies_);
     RegressionTestEnsembleAverage<ObservedQuantityRecording<Real>>
-        write_solid_temperature("Phi", io_environment, temperature_observer_contact);
+        write_solid_temperature_x("Phi", io_environment, contact_temperature_observer_x);
 
     RegressionTestEnsembleAverage<ObservedQuantityRecording<Real>>
-        write_solid_temperature_vertical("Phi", io_environment, temperature_observer_vertical_contact);
+        write_solid_temperature_y("Phi", io_environment, contact_temperature_observer_y);
 
+    RegressionTestEnsembleAverage<ObservedQuantityRecording<Real>>
+        write_solid_temperature_z("Phi", io_environment, contact_temperature_observer_z);
     //----------------------------------------------------------------------
     //	Prepare the simulation with cell linked list, configuration
     //	and case specified initial condition if necessary.
     //----------------------------------------------------------------------
     sph_system.initializeSystemCellLinkedLists();
-	periodic_condition_y.update_cell_linked_list_.exec();
+	periodic_condition_x.update_cell_linked_list_.exec();
     periodic_condition_y.update_cell_linked_list_.exec();
     periodic_condition_z.update_cell_linked_list_.exec();
     sph_system.initializeSystemConfigurations();
     correct_configuration.exec();
     correct_second_configuration.exec();
     setup_diffusion_initial_condition.exec();
- 
+    
+    std::cout<<"inverse_decomposed_transform_tensor"<< inverse_decomposed_transform_tensor<<std::endl;
+
+
     //----------------------------------------------------------------------
     //	Setup for time-stepping control
     //----------------------------------------------------------------------
@@ -495,8 +522,9 @@ int main(int ac, char *av[])
     //	First output before the main loop.
     //----------------------------------------------------------------------
     write_states.writeToFile();
-    write_solid_temperature.writeToFile();
-    write_solid_temperature_vertical.writeToFile();
+	write_solid_temperature_x.writeToFile( );
+    write_solid_temperature_y.writeToFile( );
+    write_solid_temperature_z.writeToFile( );
     //----------------------------------------------------------------------
     //	Main loop starts here.
     //----------------------------------------------------------------------
@@ -508,7 +536,7 @@ int main(int ac, char *av[])
             Real relaxation_time = 0.0;
             while (relaxation_time < Observe_time)
             {
-                dt =   get_time_step_size.exec();
+                dt =  0.1 * get_time_step_size.exec();
                 diffusion_relaxation.exec(dt);
        
              
@@ -525,12 +553,15 @@ int main(int ac, char *av[])
                 integration_time += dt;
                 GlobalStaticVariables::physical_time_ += dt;
             } 
-			write_solid_temperature.writeToFile(ite);
-            write_solid_temperature_vertical.writeToFile(ite);
+		
+          
         }
+	    write_solid_temperature_x.writeToFile(ite);
+        write_solid_temperature_y.writeToFile(ite);
+        write_solid_temperature_z.writeToFile(ite);
 
         TickCount t2 = TickCount::now();
-        write_states.writeToFile();
+       // write_states.writeToFile();
        
         TickCount t3 = TickCount::now();
         interval += t3 - t2;
