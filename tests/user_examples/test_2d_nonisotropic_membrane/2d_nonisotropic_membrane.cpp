@@ -16,12 +16,12 @@ using namespace SPH;
 //------------------------------------------------------------------------------
 // global parameters for the case
 //------------------------------------------------------------------------------
-Real PL = 10.0e-3;  // membrane length
+Real PL = 5.0e-3;  // membrane length
 Real PH = 0.125e-3; // membrane thickenss
 Real BC = PL * 0.15;
 
-int y_num = 20;
-Real ratio_ = 4.0;
+int y_num = 6;
+Real ratio_ = 6.0;
 // reference particle spacing
 Real resolution_ref = PH / y_num;
 Real resolution_ref_large = ratio_ * resolution_ref;
@@ -72,8 +72,8 @@ std::vector<Vecd> beam_end_shape{
 
 // a membrane saturation shape
 std::vector<Vecd> beam_saturation_shape{
-    Vecd(-resolution_ref_large * 3.0, 0.0 - PH / 2.0), Vecd(-resolution_ref_large * 3.0, PH / 2.0), Vecd(PL + 4.0 * resolution_ref_large, PH / 2.0),
-    Vecd(PL + 4.0 * resolution_ref_large, 0.0- PH / 2.0), Vecd(-resolution_ref_large * 3.0, 0.0 -PH / 2.0)};
+    Vecd(PL / 2.0 - BC, 0.0), Vecd(PL / 2.0 - BC, PH / 2.0), Vecd(PL / 2.0 + BC, PH / 2.0),
+    Vecd(PL / 2.0 + BC, 0.0), Vecd(PL / 2.0 - BC, 0.0)};
 
 // Beam observer location
 StdVec<Vecd> observation_location = {Vecd(PL / 4.0, 0.0)};
@@ -137,20 +137,15 @@ MultiPolygon createSaturationConstrainShape()
 class SaturationInitialCondition : public multi_species_continuum::PorousMediaSaturationDynamicsInitialCondition
 {
   public:
-    SaturationInitialCondition(BodyPartByParticle &body_part) :
-     multi_species_continuum::PorousMediaSaturationDynamicsInitialCondition(body_part),
-        pos_(particles_->pos_){};
+    SaturationInitialCondition(BodyPartByParticle &body_part) : multi_species_continuum::PorousMediaSaturationDynamicsInitialCondition(body_part){};
     virtual ~SaturationInitialCondition(){};
 
   protected:
-     StdLargeVec<Vec2d> &pos_;
     void update(size_t index_i, Real dt = 0.0)
     {
-        if( pos_[index_i][0]> 0.4 *PL &&  pos_[index_i][0]< 0.6 *PL )
-       { fluid_saturation_[index_i] = saturation ;
+        fluid_saturation_[index_i] = saturation;
         fluid_mass_[index_i] =  fluid_saturation_[index_i] * fulid_initial_density_ * Vol_update_[index_i];
         total_mass_[index_i] = rho_n_[index_i] * Vol_update_[index_i] + fluid_mass_[index_i];
-     }
     };
 };
 
@@ -225,8 +220,6 @@ class AnisotropicParticleGeneratorBoundary : public ParticleGenerator
                 initializePositionAndVolumetricMeasure(Vec2d(x, y), (resolution_ref * resolution_ref_large));
             }
         }
-
-     
     }
 };
 
@@ -239,43 +232,24 @@ class NonisotropicKernelCorrectionMatrixComplex : public LocalDynamics, public G
     NonisotropicKernelCorrectionMatrixComplex(ComplexRelation &complex_relation, Real alpha = Real(0))
         : LocalDynamics(complex_relation.getInnerRelation().getSPHBody()),
 		GeneralDataDelegateComplex(complex_relation), 
-        contact_body_(*(complex_relation.getContactRelation().contact_bodies_[0])),
-        neigh_boundary(contact_body_.getBaseParticles().neigh_boundary_),
-		B_(*particles_->registerSharedVariable<Mat2d>("KernelCorrectionMatrix")) 
-        {
-   
-       particles_->registerVariable(neigh_, "neighbour", [&](size_t i) -> Real { return Eps * Real(0.0); });
-        
-        };
+		B_(*particles_->registerSharedVariable<Mat2d>("KernelCorrectionMatrix")) { };
 
     virtual ~NonisotropicKernelCorrectionMatrixComplex(){};
    
   protected:
-     SPHBody &contact_body_;
-     StdLargeVec<Real> &neigh_boundary;
 	 StdLargeVec<Mat2d> &B_;
-     StdLargeVec<Real> neigh_;
-     
-   
+ 
 	  void initialization(size_t index_i, Real dt = 0.0)
 	  {
 		  Mat2d local_configuration = Eps * Mat2d::Identity();
 		  const Neighborhood &inner_neighborhood = inner_configuration_[index_i];
 		  for (size_t n = 0; n != inner_neighborhood.current_size_; ++n)
 		  {   
-
-             Real index_j = inner_neighborhood.j_[n];
-             
 			  Vec2d gradW_ij = inner_neighborhood.dW_ijV_j_[n] * inner_neighborhood.e_ij_[n];
 
 			  Vec2d r_ji = inner_neighborhood.r_ij_vector_[n];
 			  local_configuration -= r_ji * gradW_ij.transpose();
-              if (index_i == 128)
-              {
-                neigh_[index_j] = 1.0;
-              }
-              
-
+      
 		  }
 		  B_[index_i] = local_configuration;
 
@@ -289,13 +263,7 @@ class NonisotropicKernelCorrectionMatrixComplex : public LocalDynamics, public G
 			Neighborhood &contact_neighborhood = (*contact_configuration_[k])[index_i];
 			for (size_t n = 0; n != contact_neighborhood.current_size_; ++n)
 			{ 
-                 Real index_j = contact_neighborhood.j_[n];
-                  if (index_i == 128)
-              {    
-                     neigh_boundary[index_j] = 1.0;
-               }
-         
-              
+       
 				Vec2d r_ji = contact_neighborhood.r_ij_vector_[n];
 				Vec2d gradW_ij = contact_neighborhood.dW_ijV_j_[n] * contact_neighborhood.e_ij_[n];
 				local_configuration -= r_ji * gradW_ij.transpose();
@@ -306,11 +274,8 @@ class NonisotropicKernelCorrectionMatrixComplex : public LocalDynamics, public G
 
 	void update(size_t index_i, Real dt)
 	{
-		 Mat2d inverse = B_[index_i].inverse();
-		B_[index_i] = inverse;
-         
-                                    
-                                       
+		Mat2d inverse = B_[index_i].inverse();
+		B_[index_i] = inverse;	
 	}
 };
 
@@ -320,8 +285,7 @@ class NonisotropicSaturationRelaxationInPorousMedia  : public LocalDynamics, pub
  public:
     public:
     NonisotropicSaturationRelaxationInPorousMedia(ComplexRelation &complex_relation): 
-                LocalDynamics(complex_relation.getInnerRelation().getSPHBody()),  
-                multi_species_continuum::PorousMediaSolidDataComplex(complex_relation),  
+                LocalDynamics(complex_relation.getInnerRelation().getSPHBody()),  multi_species_continuum::PorousMediaSolidDataComplex(complex_relation),  
 		   pos_(particles_->pos_), B_(particles_->B_),
 		    Vol_update_(particles_->Vol_update_), fluid_saturation_(particles_->fluid_saturation_),
 			total_mass_(particles_->total_mass_), fluid_mass_(particles_->fluid_mass_),
@@ -474,7 +438,7 @@ class NonisotropicSaturationRelaxationInPorousMedia  : public LocalDynamics, pub
    void update(size_t index_i, Real dt = 0.0)
     {
       fluid_mass_[index_i] += dfluid_mass_dt_[index_i] * dt;
-	  ////fluid_mass_[index_i] =  0.995 * fluid_mass_[index_i];
+	  fluid_mass_[index_i] =  0.995 * fluid_mass_[index_i];
 		 // update total mass
 	   total_mass_[index_i] = rho0_ * Vol_[index_i] + fluid_mass_[index_i];
 	   //  update fluid saturation 
@@ -570,8 +534,7 @@ int main(int ac, char *av[])
     BodyRegionByParticle beam_saturation(beam_body, makeShared<MultiPolygonShape>(createSaturationConstrainShape()));
     SimpleDynamics<SaturationInitialCondition> constrain_beam_saturation(beam_saturation);
    
- 
-    beam_body.addBodyStateForRecording<Real>("neighbour");
+  
     beam_body.addBodyStateForRecording<Real>("Laplacian_x");
     beam_body.addBodyStateForRecording<Real>("Laplacian_y");
     beam_body.addBodyStateForRecording<Mat2d>("KernelCorrectionMatrix");
@@ -612,7 +575,7 @@ int main(int ac, char *av[])
     //----------------------------------------------------------------------
 
     Real End_Time = 3000;
-    //Real setup_saturation_time_ = End_Time * 0.1;
+    Real setup_saturation_time_ = End_Time * 0.15;
 
     // time step size for output file
     Real D_Time = End_Time / 100.0;
@@ -635,25 +598,54 @@ int main(int ac, char *av[])
         while (integration_time < D_Time)
         {
             Real Dt = scaling_factor *  scaling_factor * saturation_time_step_size.exec();
-             saturation_relaxation.exec(Dt);
-      
-      
-                      ite++;
-                    if (ite % 100 == 0)
+            if (GlobalStaticVariables::physical_time_ < setup_saturation_time_)
+            {
+                constrain_beam_saturation.exec();
+            }
+            saturation_relaxation.exec(Dt);
+
+            int stress_ite = 0;
+            Real relaxation_time = 0.0;
+            Real total_kinetic_energy = 1.0e8;
+
+            while (relaxation_time < Dt)
+            {
+                if (total_kinetic_energy > (5e-8 * refer_density_energy)) // this is because we change the total mehanical energy calculation
+                {
+                    stress_relaxation_first_half.exec(dt);
+                    clamp_constrain_beam_base.exec();
+                    beam_damping.exec(Dt);
+                    clamp_constrain_beam_base.exec();
+                    stress_relaxation_second_half.exec(dt);
+
+                    total_kinetic_energy = get_kinetic_energy.exec();
+                    ite++;
+                    stress_ite++;
+                    dt = scaling_factor * SMIN(computing_time_step_size.exec(), Dt);
+
+                    if (ite % 1000 == 0)
                     {
                         std::cout << "N=" << ite << " Time: "
-                                  << GlobalStaticVariables::physical_time_ << "	Dt: "
-                                  << Dt <<  "\n";
+                                  << GlobalStaticVariables::physical_time_ << "  Dt:" << Dt << "	dt: "
+                                  << dt << "  Dt/ dt:" << Dt / dt << "\n";
                     }
-               integration_time += Dt;
-               GlobalStaticVariables::physical_time_ += Dt;
+                }
+
+                total_ite++;
+                relaxation_time += dt;
+                integration_time += dt;
+                GlobalStaticVariables::physical_time_ += dt;
+            }
+
+            std::cout << "One Diffusion finishes   "
+                      << "total_kinetic_energy =  " << total_kinetic_energy
+                      << "     stress_ite = " << stress_ite << std::endl;
         }
-       
+
         TickCount t2 = TickCount::now();
         write_beam_states.writeToFile(ite);
         write_beam_tip_position.writeToFile(ite);
        write_beam_saturation.writeToFile(ite);
-
         TickCount t3 = TickCount::now();
         interval += t3 - t2;
     }
