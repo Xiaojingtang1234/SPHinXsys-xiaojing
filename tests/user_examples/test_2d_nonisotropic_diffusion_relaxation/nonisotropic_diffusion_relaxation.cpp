@@ -20,7 +20,7 @@ Real BH = 6.0 * resolution_ref;
 //----------------------------------------------------------------------
 //	Basic parameters for material properties.
 //----------------------------------------------------------------------
-Real diffusion_coeff = 0.1;
+Real diffusion_coeff = 0.5;
 Real rho0 = 1.0;
 Real youngs_modulus = 1.0;
 Real poisson_ratio = 1.0;
@@ -592,7 +592,7 @@ int main(int ac, char *av[])
 
          InnerRelation diffusion_block_inner_relation(diffusion_block);
          InnerRelation boundary_inner_relation(boundary);
-         ContactRelation  boundary_contact(boundary, {&diffusion_block});
+           ComplexRelation  boundary_complex(boundary, {&diffusion_block});
         //----------------------------------------------------------------------
         //	Methods used for particle relaxation.
         //----------------------------------------------------------------------
@@ -603,9 +603,7 @@ int main(int ac, char *av[])
         ReloadParticleIO write_real_body_particle_reload_files(io_environment, sph_system.real_bodies_);
         /** A  Physics relaxation step. */
         relax_dynamics::RelaxationStepInner relaxation_step_inner(diffusion_block_inner_relation);
-
-       relax_dynamics::RelaxationStepComplex relaxation_step_complex(
-            ConstructorArgs(boundary_inner_relation, "OuterBoundary"), boundary_contact);
+        relax_dynamics::RelaxationStepComplex relaxation_step_complex(boundary_complex, "OuterBoundary", true);
 
 
         //----------------------------------------------------------------------
