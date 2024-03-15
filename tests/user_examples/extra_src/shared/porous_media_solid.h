@@ -58,13 +58,14 @@ namespace multi_species_continuum
 
     /** Constructor */
 		explicit PorousMediaSolid(Real rho0, Real youngs_modulus, Real poisson_ratio, Real diffusivity_constant,
-			Real fulid_initial_density, Real water_pressure_constant)
+			Real fulid_initial_density, Real water_pressure_constant, Real nonisotropic_ratio = 1.0)
 			: LinearElasticSolid(rho0, youngs_modulus, poisson_ratio) 
 		{
 			diffusivity_constant_ = diffusivity_constant; 
 			fulid_initial_density_ = fulid_initial_density;
 			water_pressure_constant_ = water_pressure_constant;
-
+            nonistropic_ratio_= nonisotropic_ratio;
+			
 			material_type_name_ = "PorousMediaSolid";
 		};
 

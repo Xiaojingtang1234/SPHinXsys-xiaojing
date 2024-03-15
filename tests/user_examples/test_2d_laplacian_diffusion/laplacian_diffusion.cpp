@@ -412,7 +412,7 @@ class LaplacianBodyRelaxation : public LocalDynamics, public LaplacianSolidDataC
 
             
                 Vec3d S_ = Vec3d(r_ij[0] * r_ij[0], r_ij[1] * r_ij[1], r_ij[0] * r_ij[1]);
-                Real FF_ = 2.0 * (0.0 - r_ij.dot(E_[index_i])); ///here when it is periodic boundary condition, should notice the 0.0
+                Real FF_ = 2.0 * (0.0 - r_ij.dot(E_[index_i])); ///here when it is isothermal boundary condition, should notice the 0.0
                 H_rate_contact = r_ij.dot(B_[index_i].transpose() * gradW_ijV_j) / pow(r_ij.norm(), 4.0);
 		
                 //TO DO
@@ -725,7 +725,7 @@ int main(int ac, char *av[])
             Real relaxation_time = 0.0;
             while (relaxation_time < Observe_time)
             {
-                dt = 0.01 *scaling_factor * get_time_step_size.exec();
+                dt = 0.1 *scaling_factor * get_time_step_size.exec();
                 diffusion_relaxation.exec(dt);
           //    update_diffusion_condition.exec();
 

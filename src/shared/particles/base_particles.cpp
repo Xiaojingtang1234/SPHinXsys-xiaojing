@@ -42,11 +42,15 @@ void BaseParticles::initializeOtherVariables()
     registerVariable(mass_, "MassiveMeasure",
                      [&](size_t i) -> Real
                      { return rho_[i] * Vol_[i]; });
+    registerVariable(neigh_boundary_, "NeighbourBoundary",
+	 				[&](size_t i) -> Real { return Eps * Real(0.0); });
     registerVariable(indicator_, "Indicator");
     /**
      *	add basic output particle data
      */
     addVariableToWrite<Vecd>("Velocity");
+    addVariableToWrite<Real>("NeighbourBoundary");
+
     /**
      *	add restart output particle data
      */

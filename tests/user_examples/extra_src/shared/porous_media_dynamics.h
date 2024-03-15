@@ -43,7 +43,7 @@ namespace multi_species_continuum
 //----------------------------------------------------------------------
     typedef DataDelegateSimple<SPH::multi_species_continuum::PorousMediaParticles> PorousMediaSolidDataSimple;
 	typedef DataDelegateInner<SPH::multi_species_continuum::PorousMediaParticles> PorousMediaSolidDataInner;
- 
+     typedef DataDelegateComplex<SPH::multi_species_continuum::PorousMediaParticles, BaseParticles> PorousMediaSolidDataComplex;
 		/** 
 	 	* @class GetSaturationTimeStepSize
 		* @brief Computing the time step size based on diffusion coefficient and particle smoothing length
@@ -103,6 +103,7 @@ namespace multi_species_continuum
 			StdLargeVec<Matd> &B_, &F_, &dF_dt_;
 			Real rho0_, inv_rho0_;
 			Real smoothing_length_;
+			Real nonistropic_ratio_;
 		 
 		};
 
@@ -247,9 +248,13 @@ namespace multi_species_continuum
 					Vecd e_ij = inner_neighborhood.e_ij_[n];
 					fluid_saturation_gradient -=  (fluid_saturation_[index_i] - fluid_saturation_[index_j])
 													* e_ij* dw_ijV_j_;
-							
 					
-					relative_fluid_flux_divergence +=  1.0 / 2.0 * (fluid_saturation_[index_i] * fluid_saturation_[index_i] - fluid_saturation_[index_j] * fluid_saturation_[index_j]) 
+					//for 2d case, it is as follows and no water loss
+					//for 3d case it is(fluid_saturation_[index_i] -   fluid_saturation_[index_j])  plus 0.995   to reproduce
+					/*		relative_fluid_flux_divergence +=  1.0 / 2.0 * (fluid_saturation_[index_i] * fluid_saturation_[index_i] - fluid_saturation_[index_j] * fluid_saturation_[index_j]) 
+															/ (r_ij + TinyReal) *  dw_ijV_j_;  */
+				   
+					relative_fluid_flux_divergence +=   (fluid_saturation_[index_i]   -   fluid_saturation_[index_j]) 
 															/ (r_ij + TinyReal) *  dw_ijV_j_;
 													
 				}
@@ -261,6 +266,10 @@ namespace multi_species_continuum
 			};
 			void update(size_t index_i, Real Dt = 0.0);
 		};
+
+
+
+
 
 } // namespace multi_species_continuum
 } // namespace SPH

@@ -96,6 +96,7 @@ class BaseParticles
     StdLargeVec<Vecd> vel_;       /**< Velocity */
     StdLargeVec<Vecd> acc_;       /**< Acceleration induced by pressure- or stress */
     StdLargeVec<Vecd> acc_prior_; /**< Other, such as gravity and viscous, accelerations computed before acc_ */
+   StdLargeVec<Real> neigh_boundary_;   
 
     StdLargeVec<Real> Vol_;      /**< Volumetric measure, also area and length of surface and linear particle */
     StdLargeVec<Real> rho_;      /**< Density */

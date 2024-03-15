@@ -18,7 +18,11 @@ BasePorousMediaRelaxation::
     {
         rho0_ = particles_->porous_solid_.ReferenceDensity();
         inv_rho0_ = 1.0 / rho0_;
-        smoothing_length_ =   sph_body_.sph_adaptation_->ReferenceSmoothingLength();
+
+        //nonistropic_ratio_ = particles_->porous_solid_.NonistropicRatio();
+         nonistropic_ratio_ = 1.0;
+		smoothing_length_ = sph_body_.sph_adaptation_->ReferenceSmoothingLength() / nonistropic_ratio_ ;
+        
     }
 //=================================================================================================//
 MomentumConstraint::MomentumConstraint(BodyPartByParticle &body_part)
@@ -87,6 +91,7 @@ void SaturationRelaxationInPorousMedia::initialization(size_t index_i, Real Dt) 
 void SaturationRelaxationInPorousMedia::update(size_t index_i, Real Dt) 
 {
     fluid_mass_[index_i] += dfluid_mass_dt_[index_i] * Dt;
+    fluid_mass_[index_i]  = 0.995 * fluid_mass_[index_i];
     // update total mass
     total_mass_[index_i] = rho0_ * Vol_[index_i] + fluid_mass_[index_i];
     //  update fluid saturation 

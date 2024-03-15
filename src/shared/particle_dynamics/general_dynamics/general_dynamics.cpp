@@ -100,7 +100,7 @@ TotalMechanicalEnergy::TotalMechanicalEnergy(SPHBody &sph_body, SharedPtr<Gravit
 //=================================================================================================//
 Real TotalMechanicalEnergy::reduce(size_t index_i, Real dt)
 {
-    return 0.5 * mass_[index_i] * vel_[index_i].squaredNorm() + mass_[index_i] * gravity_->getPotential(pos_[index_i]);
+    return 0.5 * 2000 * vel_[index_i].squaredNorm() + mass_[index_i] * gravity_->getPotential(pos_[index_i]);
 }
 //=================================================================================================//
 } // namespace SPH

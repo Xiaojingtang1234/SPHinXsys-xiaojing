@@ -51,7 +51,8 @@ class ElasticSolid : public Solid
     Real G0_;  /*< shear modules  */
     Real K0_;  /*< bulk modules  */
     Real nu_;  /*< Poisson ratio  */
-
+    
+    Real nonistropic_ratio_;
     void setSoundSpeeds();
 
   public:
@@ -69,6 +70,8 @@ class ElasticSolid : public Solid
     Real ShearModulus() { return G0_; };
     Real BulkModulus() { return K0_; };
     Real PoissonRatio() { return nu_; };
+
+		Real NonistropicRatio() { return nonistropic_ratio_; };
 
     /** 1st Piola-Kirchhoff stress through deformation. */
     virtual Matd StressPK1(Matd &deformation, size_t particle_index_i) = 0;
