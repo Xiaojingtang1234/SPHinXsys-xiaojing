@@ -20,6 +20,7 @@ void Neighborhood::removeANeighbor(size_t neighbor_n)
     dW_ijV_j_[neighbor_n] = dW_ijV_j_[current_size_];
     r_ij_[neighbor_n] = r_ij_[current_size_];
     e_ij_[neighbor_n] = e_ij_[current_size_];
+    r_ij_vector_[neighbor_n] = r_ij_vector_[current_size_];
 }
 //=================================================================================================//
 void NeighborBuilder::createNeighbor(Neighborhood &neighborhood, const Real &distance,
