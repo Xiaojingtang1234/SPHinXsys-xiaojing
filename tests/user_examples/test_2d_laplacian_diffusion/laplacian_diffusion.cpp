@@ -14,7 +14,7 @@ Real H = 0.4;
 
 
 int y_num = 20;
-Real ratio_ = 8.0;
+Real ratio_ = 4.0;
 Real resolution_ref = H / y_num;
 Real resolution_ref_large = ratio_ * resolution_ref;
 int x_num = L / resolution_ref_large;
@@ -315,8 +315,6 @@ class NonisotropicKernelCorrectionMatrixComplexAC : public LocalDynamics, public
 	void update(size_t index_i, Real dt = 0.0) {};
 };
 
-
- 
 class LaplacianBodyRelaxation : public LocalDynamics, public LaplacianSolidDataComplex
 {
   public:
@@ -335,6 +333,20 @@ class LaplacianBodyRelaxation : public LocalDynamics, public LaplacianSolidDataC
 		particles_->registerVariable(diffusion_dt_, "diffusion_dt", [&](size_t i) -> Real { return Real(0.0); });
 		
         diffusion_coeff_ = particles_->laplacian_solid_.DiffusivityCoefficient();
+
+	     StdLargeVec<Real>  contact_phi_;  
+		contact_phi_.resize(this->contact_particles_.size());
+
+		 
+		for (size_t k = 0; k != this->contact_particles_.size(); ++k)
+		{
+			 
+			contact_phi_[k].push_back(&all_contact_species_k[contact_species_index_k_m]);
+		}
+		 
+
+
+
     };
     virtual ~LaplacianBodyRelaxation(){};
 
@@ -384,17 +396,16 @@ class LaplacianBodyRelaxation : public LocalDynamics, public LaplacianSolidDataC
             
              //TO DO
             Vec3d C_ = Vec3d::Zero();
-            C_[0] = (r_ij[0] * r_ij[0]);
-            C_[1] = (r_ij[1] * r_ij[1]);
-            C_[2] = (r_ij[0] * r_ij[1]);
+            C_[0] = (r_ij[0] * r_ij[0]- r_ij.dot(A1_[index_i]));
+            C_[1] = (r_ij[1] * r_ij[1]- r_ij.dot(A2_[index_i]));
+            C_[2] = (r_ij[0] * r_ij[1]- r_ij.dot(A3_[index_i]));
             SC_rate += S_ *H_rate* C_.transpose();   
 
         }
         
         G_[index_i] = G_rate;
         SC_[index_i] = SC_rate;
-        
-    
+  
     };
 
     void interaction(size_t index_i, Real dt = 0.0)
@@ -542,17 +553,15 @@ class DiffusionInitialCondition : public LocalDynamics, public LaplacianSolidDat
     {
         if (pos_[index_i][0] >= 0.3 * L && pos_[index_i][0] <= 0.7 * L)
         {
-            if (pos_[index_i][1] >= 0.3*H && pos_[index_i][1] <= 0.7 * H)
-            {
-                phi_[index_i] = 1.0;
-            }
+           // if (pos_[index_i][1] >= 0.4*H && pos_[index_i][1] <= 0.6 * H)
+           // {
+             //   phi_[index_i] = 1.0;
+          //  }
           
-        } 
-     //    phi_[index_i] = 3.0 * pos_[index_i][0] * pos_[index_i][0];
-       
+        }
+         phi_[index_i] = sin(pos_[index_i][0]);       
     };
 };
-
 
 
 class DiffusionUpdateCondition : public LocalDynamics, public LaplacianSolidDataInner
@@ -583,6 +592,25 @@ class DiffusionUpdateCondition : public LocalDynamics, public LaplacianSolidData
        
        
     };
+};
+
+
+class BoundaryCondition : public LocalDynamics, public LaplacianSolidDataInner
+{
+public:
+	BoundaryCondition(BaseInnerRelation &inner_relation)
+		: LocalDynamics(inner_relation.getSPHBody()), LaplacianSolidDataInner(inner_relation),
+		pos_(particles_->pos_), phi_(particles_->phi_) {};
+	virtual ~BoundaryCondition() {};
+
+	StdLargeVec<Vec2d> &pos_;
+	StdLargeVec<Real> &phi_;
+
+protected:
+	void update(size_t index_i, Real dt = 0.0)
+	{
+		phi_[index_i] = 1.0;
+	};
 };
 
 class GetLaplacianTimeStepSize : public LocalDynamicsReduce<Real, ReduceMin>,
@@ -646,6 +674,8 @@ int main(int ac, char *av[])
     //  inner and contact relations.
     //----------------------------------------------------------------------
     InnerRelation diffusion_body_inner_relation(diffusion_body);
+	InnerRelation boundary_body_inner_relation(boundary_body);
+
     ContactRelation temperature_observer_contact(temperature_observer, {&diffusion_body});
     ComplexRelation diffusion_block_complex(diffusion_body, {&boundary_body});
     //----------------------------------------------------------------------
@@ -725,7 +755,7 @@ int main(int ac, char *av[])
             Real relaxation_time = 0.0;
             while (relaxation_time < Observe_time)
             {
-                dt = 0.01 *scaling_factor * get_time_step_size.exec();
+                dt = 0.1*scaling_factor * get_time_step_size.exec();
                 diffusion_relaxation.exec(dt);
           //    update_diffusion_condition.exec();
 
