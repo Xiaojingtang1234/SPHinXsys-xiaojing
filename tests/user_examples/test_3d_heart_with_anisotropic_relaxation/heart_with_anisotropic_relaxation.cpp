@@ -55,11 +55,10 @@ Real epsilon = 0.002;
 Vec3d fiber_direction(1.0, 0.0, 0.0);
 Vec3d sheet_direction(0.0, 1.0, 0.0);
 
- 
-Mat3d decomposed_transform_tensor{ 
-     {0.8944, 0.0, 0.0},  
-     {0.0, 0.8944, 0.0},
-     {0.0, 0.0, 0.8944},
+ Mat3d decomposed_transform_tensor{ 
+     {0.8, 0.0, 0.0},  
+     {0.0,0.8, 0.0},
+     {0.0, 0.0, 0.8},
 }; 
 Mat3d inverse_decomposed_transform_tensor =  decomposed_transform_tensor.inverse();
 
@@ -72,7 +71,7 @@ class BoundaryModel : public ComplexShape
   public:
     explicit BoundaryModel(const std::string &shape_name) : ComplexShape(shape_name)
     {
-        add<TransformShape<GeometricShapeBox>>(Transform(translation_boundary), halfsize_boundary);
+        add<TransformShape<GeometricShapeBox>>(Transform(translation_boundary), halfsize_boundary, "OuterBoundary");
         Vecd translation(-53.5 * length_scale, -70.0 * length_scale, -32.5 * length_scale);
         subtract<TriangleMeshShapeSTL>(full_path_to_stl_file, translation, length_scale);
     }
@@ -248,33 +247,7 @@ class ApplyStimulusCurrentSI
 /**
  * application dependent initial condition
  */
-class ApplyStimulusCurrentSII
-    : public electro_physiology::ElectroPhysiologyInitialCondition
-{
-  protected:
-    size_t voltage_;
 
-  public:
-    explicit ApplyStimulusCurrentSII(SPHBody &sph_body)
-        : electro_physiology::ElectroPhysiologyInitialCondition(sph_body)
-    {
-        voltage_ = particles_->diffusion_reaction_material_.AllSpeciesIndexMap()["Voltage"];
-    };
-
-    void update(size_t index_i, Real dt)
-    {
-        if (0.0 <= pos_[index_i][0] && pos_[index_i][0] <= 6.0 * length_scale)
-        {
-            if (-6.0 * length_scale <= pos_[index_i][1])
-            {
-                if (12.0 * length_scale <= pos_[index_i][2])
-                {
-                    all_species_[voltage_][index_i] = 0.95;
-                }
-            }
-        }
-    };
-};
 /**
  * define observer particle generator.
  */
@@ -285,10 +258,10 @@ class HeartObserverParticleGenerator : public ObserverParticleGenerator
     {
         /** position and volume. */
         positions_.push_back(Vecd(-45.0 * length_scale, -30.0 * length_scale, 0.0));
-        positions_.push_back(Vecd(0.0, -30.0 * length_scale, 26.0 * length_scale));
-        positions_.push_back(Vecd(-30.0 * length_scale, -50.0 * length_scale, 0.0));
+        positions_.push_back(Vecd(0.0, -30.0 * length_scale, 26.0 * length_scale)); // point a
+        positions_.push_back(Vecd(-30.0 * length_scale, -50.0 * length_scale, 0.0)); // point c
         positions_.push_back(Vecd(0.0, -50.0 * length_scale, 20.0 * length_scale));
-        positions_.push_back(Vecd(0.0, -70.0 * length_scale, 0.0));
+        positions_.push_back(Vecd(0.0, -70.0 * length_scale, 0.0)); // POINT B
     }
 };
 
@@ -363,13 +336,7 @@ class ElectroPhysiologyParticlesforLaplacian
           registerVariable(A4_, "FirstOrderCorrectionVectorA4", [&](size_t i) -> Vec3d { return Eps * Vec3d::Identity(); });
           registerVariable(A5_, "FirstOrderCorrectionVectorA5", [&](size_t i) -> Vec3d { return Eps * Vec3d::Identity(); });
           registerVariable(A6_, "FirstOrderCorrectionVectorA6", [&](size_t i) -> Vec3d { return Eps * Vec3d::Identity(); });
-    
-
-          addVariableToWrite<Vec3d>("FirstOrderCorrectionVectorA1");
-          addVariableToWrite<Vec3d>("FirstOrderCorrectionVectorA2");
-          
-          addVariableToWrite<Vec3d>("FirstOrderCorrectionVectorA4");
-          addVariableToWrite<Vec3d>("FirstOrderCorrectionVectorA5"); 
+     
         };
 
     StdLargeVec<Vec3d> A1_;
@@ -383,20 +350,25 @@ class ElectroPhysiologyParticlesforLaplacian
     virtual ElectroPhysiologyParticlesforLaplacian *ThisObjectPtr() override { return this; };
 };
 
-/*
-class NonisotropicKernelCorrectionMatrixComplexAC : public LocalDynamics, public LaplacianSolidDataComplex
+typedef DataDelegateComplex<ElectroPhysiologyParticlesforLaplacian, BaseParticles> DiffusionReactionComplexData;
+ 
+
+
+class NonisotropicKernelCorrectionMatrixComplexAC : public LocalDynamics, public DiffusionReactionComplexData
 {
   public:
     NonisotropicKernelCorrectionMatrixComplexAC(ComplexRelation &complex_relation): 
-                LocalDynamics(complex_relation.getInnerRelation().getSPHBody()), LaplacianSolidDataComplex(complex_relation),
+                LocalDynamics(complex_relation.getInnerRelation().getSPHBody()),DiffusionReactionComplexData(complex_relation),
                  B_(particles_->B_), A1_(particles_->A1_), A2_(particles_->A2_), A3_(particles_->A3_), 
-                 A4_(particles_->A4_), A5_(particles_->A5_), A6_(particles_->A6_) {};
-
+                 A4_(particles_->A4_), A5_(particles_->A5_), A6_(particles_->A6_),
+                 local_transformed_diffusivity_(*particles_->registerSharedVariable<Mat3d>("LocalTransformedDiffusivity")) {};
+   
     virtual ~NonisotropicKernelCorrectionMatrixComplexAC(){};
 
   protected:
     StdLargeVec<Mat3d> &B_;
     StdLargeVec<Vec3d> &A1_,&A2_,&A3_, &A4_,&A5_,&A6_;
+    StdLargeVec<Mat3d> &local_transformed_diffusivity_;
 
     void initialization(size_t index_i, Real dt = 0.0)
     {
@@ -404,7 +376,7 @@ class NonisotropicKernelCorrectionMatrixComplexAC : public LocalDynamics, public
         for (size_t n = 0; n != inner_neighborhood.current_size_; ++n) // this is ik
         {
             Vec3d gradW_ikV_k = inner_neighborhood.dW_ijV_j_[n] * inner_neighborhood.e_ij_[n];
-            Vec3d r_ik = inverse_decomposed_transform_tensor * -inner_neighborhood.r_ij_vector_[n];
+            Vec3d r_ik = local_transformed_diffusivity_[index_i] *  -inner_neighborhood.r_ij_vector_[n];
             
             A1_[index_i] += r_ik[0] * r_ik[0] * (B_[index_i].transpose() * gradW_ikV_k);
             A2_[index_i] += r_ik[1] * r_ik[1] * (B_[index_i].transpose() * gradW_ikV_k);
@@ -423,7 +395,7 @@ class NonisotropicKernelCorrectionMatrixComplexAC : public LocalDynamics, public
             Neighborhood &contact_neighborhood = (*contact_configuration_[k])[index_i];
             for (size_t n = 0; n != contact_neighborhood.current_size_; ++n)
             {
-                Vec3d r_ik = inverse_decomposed_transform_tensor * -contact_neighborhood.r_ij_vector_[n];
+                Vec3d r_ik = local_transformed_diffusivity_[index_i] * -contact_neighborhood.r_ij_vector_[n];
                 Vec3d gradW_ikV_k = contact_neighborhood.dW_ijV_j_[n] * contact_neighborhood.e_ij_[n];
 
                 A1_[index_i] += r_ik[0] * r_ik[0] * (B_[index_i].transpose() * gradW_ikV_k);
@@ -440,9 +412,6 @@ class NonisotropicKernelCorrectionMatrixComplexAC : public LocalDynamics, public
 
 	void update(size_t index_i, Real dt = 0.0) {};
 };
-*/
-typedef DataDelegateComplex<ElectroPhysiologyParticlesforLaplacian, BaseParticles> DiffusionReactionComplexData;
- 
 
  class DiffusionRelaxationComplex
     : public LocalDynamics,
@@ -457,9 +426,8 @@ typedef DataDelegateComplex<ElectroPhysiologyParticlesforLaplacian, BaseParticle
    
     StdLargeVec<Vec3d> &pos_;
     StdLargeVec<Mat3d> &B_;
+    StdLargeVec<Mat3d> &local_transformed_diffusivity_;
 
-
-    //StdLargeVec<Vec3d> &A1_,&A2_,&A3_, &A4_,&A5_,&A6_;
     StdVec<StdLargeVec<Vec3d>*> E_;
     StdLargeVec<Vec3d> E_rate_;
     
@@ -468,9 +436,9 @@ typedef DataDelegateComplex<ElectroPhysiologyParticlesforLaplacian, BaseParticle
     StdLargeVec<Vec6d> Laplacian_; 
  
     StdLargeVec<Real> Laplacian_x, Laplacian_y, Laplacian_z;
-    Real diffusion_coeff_;
+   
    size_t particle_number;
-
+   StdLargeVec<Vec3d> &A1_,&A2_,&A3_, &A4_,&A5_,&A6_;
   public:
    
     explicit DiffusionRelaxationComplex(ComplexRelation &complex_relation): 
@@ -479,16 +447,15 @@ typedef DataDelegateComplex<ElectroPhysiologyParticlesforLaplacian, BaseParticle
       all_diffusions_(material_.AllDiffusions()),
       diffusion_species_(this->particles_->DiffusionSpecies()), 
       pos_(particles_->pos_), B_(particles_->B_),
+      local_transformed_diffusivity_(*particles_->registerSharedVariable<Mat3d>("LocalTransformedDiffusivity")),
       particle_number(complex_relation.getSPHBody().getBaseParticles().real_particles_bound_)
-      //, A1_(particles_->A1_), A2_(particles_->A2_), A3_(particles_->A3_)
+      , A1_(particles_->A1_), A2_(particles_->A2_), A3_(particles_->A3_) , A4_(particles_->A4_), A5_(particles_->A5_), A6_(particles_->A6_)
       {
        
         this->particles_->registerVariable(Laplacian_x, "Laplacian_x", [&](size_t i) -> Real { return Real(0.0); });
         this->particles_->registerVariable(Laplacian_y, "Laplacian_y", [&](size_t i) -> Real { return Real(0.0); });
         this->particles_->registerVariable(Laplacian_z, "Laplacian_z", [&](size_t i) -> Real { return Real(0.0); });
-         
-         std::cout<< "particle_number "<<particle_number<<std::endl;
-
+        
         diffusion_dt_.resize(all_diffusions_.size());
         E_.resize(all_diffusions_.size());
         SC_.resize(all_diffusions_.size());
@@ -515,9 +482,7 @@ typedef DataDelegateComplex<ElectroPhysiologyParticlesforLaplacian, BaseParticle
             }
 
         }
-      
-       // note this is need to confirmed
-        diffusion_coeff_ = 1.0;
+    
     };
 
 
@@ -548,7 +513,9 @@ typedef DataDelegateComplex<ElectroPhysiologyParticlesforLaplacian, BaseParticle
             for (size_t n = 0; n != inner_neighborhood.current_size_; ++n) // this is ik
             {
                 size_t index_j = inner_neighborhood.j_[n];
-                Vec3d r_ij = inverse_decomposed_transform_tensor *  -inner_neighborhood.r_ij_vector_[n];
+             
+              //  Vec3d r_ij = local_transformed_diffusivity_[index_i] * -inner_neighborhood.r_ij_vector_[n];
+                Vec3d r_ij = inverse_decomposed_transform_tensor * -inner_neighborhood.r_ij_vector_[n];
 
                 Vec3d gradW_ijV_j = inner_neighborhood.dW_ijV_j_[n] * inner_neighborhood.e_ij_[n];
                 Vec6d S_ = Vec6d(r_ij[0] * r_ij[0], r_ij[1] * r_ij[1], r_ij[2] * r_ij[2], r_ij[0] * r_ij[1], r_ij[1] * r_ij[2], r_ij[2] * r_ij[0]);
@@ -560,19 +527,19 @@ typedef DataDelegateComplex<ElectroPhysiologyParticlesforLaplacian, BaseParticle
                 
                 //TO DO
                 Vec6d C_ = Vec6d::Zero();
-               /*C_[0] = (r_ij[0] * r_ij[0]- r_ij.dot(A1_[index_i]));
+                C_[0] = (r_ij[0] * r_ij[0]- r_ij.dot(A1_[index_i]));
                 C_[1] = (r_ij[1] * r_ij[1]- r_ij.dot(A2_[index_i]));
                 C_[2] = (r_ij[2] * r_ij[2]- r_ij.dot(A3_[index_i]));
                 C_[3] = (r_ij[0] * r_ij[1]- r_ij.dot(A4_[index_i]));
                 C_[4] = (r_ij[1] * r_ij[2]- r_ij.dot(A5_[index_i]));
-                C_[5] = (r_ij[2] * r_ij[0]- r_ij.dot(A6_[index_i]));*/ 
+                C_[5] = (r_ij[2] * r_ij[0]- r_ij.dot(A6_[index_i])); 
 
-                C_[0] = (r_ij[0] * r_ij[0]);
+                /*C_[0] = (r_ij[0] * r_ij[0]);
                 C_[1] = (r_ij[1] * r_ij[1]);
                 C_[2] = (r_ij[2] * r_ij[2]);
                 C_[3] = (r_ij[0] * r_ij[1]);
                 C_[4] = (r_ij[1] * r_ij[2]);
-                C_[5] = (r_ij[2] * r_ij[0]);
+                C_[5] = (r_ij[2] * r_ij[0]);*/
                 SC_rate += S_ *H_rate* C_.transpose();   
 
             }
@@ -596,21 +563,30 @@ typedef DataDelegateComplex<ElectroPhysiologyParticlesforLaplacian, BaseParticle
                 Neighborhood &contact_neighborhood = (*contact_configuration_[k])[index_i];
                 for (size_t n = 0; n != contact_neighborhood.current_size_; ++n)
                 {
-                    Vec3d r_ij = inverse_decomposed_transform_tensor * -contact_neighborhood.r_ij_vector_[n];
+                      //Vec3d r_ij = local_transformed_diffusivity_[index_i] * -contact_neighborhood.r_ij_vector_[n];
+                      Vec3d r_ij = inverse_decomposed_transform_tensor * -contact_neighborhood.r_ij_vector_[n];
+
+                      
                     Vec3d gradW_ijV_j = contact_neighborhood.dW_ijV_j_[n] * contact_neighborhood.e_ij_[n];
 
                     Vec6d S_ = Vec6d(r_ij[0] * r_ij[0], r_ij[1] * r_ij[1], r_ij[2] * r_ij[2], r_ij[0] * r_ij[1], r_ij[1] * r_ij[2], r_ij[2] * r_ij[0]);
                     Real FF_ = 2.0 * (0.0 - r_ij.dot((*this-> E_[m])[index_i])); ///here when it is periodic boundary condition, should notice the 0.0
                     H_rate_contact = r_ij.dot(B_[index_i].transpose() * gradW_ijV_j) / pow(r_ij.norm(), 4.0);
             
-                    //TO DO
                     Vec6d C_ = Vec6d::Zero();
-                    C_[0] = (r_ij[0] * r_ij[0]);
+                    C_[0] = (r_ij[0] * r_ij[0]- r_ij.dot(A1_[index_i]));
+                    C_[1] = (r_ij[1] * r_ij[1]- r_ij.dot(A2_[index_i]));
+                    C_[2] = (r_ij[2] * r_ij[2]- r_ij.dot(A3_[index_i]));
+                    C_[3] = (r_ij[0] * r_ij[1]- r_ij.dot(A4_[index_i]));
+                    C_[4] = (r_ij[1] * r_ij[2]- r_ij.dot(A5_[index_i]));
+                    C_[5] = (r_ij[2] * r_ij[0]- r_ij.dot(A6_[index_i]));
+
+                     /*C_[0] = (r_ij[0] * r_ij[0]);
                     C_[1] = (r_ij[1] * r_ij[1]);
                     C_[2] = (r_ij[2] * r_ij[2]);
                     C_[3] = (r_ij[0] * r_ij[1]);
                     C_[4] = (r_ij[1] * r_ij[2]);
-                    C_[5] = (r_ij[2] * r_ij[0]);
+                    C_[5] = (r_ij[2] * r_ij[0]);*/ 
 
                     SC_rate_contact += S_ * H_rate_contact * C_.transpose();
                     G_rate_contact += S_ * H_rate_contact * FF_;
@@ -621,7 +597,7 @@ typedef DataDelegateComplex<ElectroPhysiologyParticlesforLaplacian, BaseParticle
             }
     
             
-            Laplacian_[index_i] = diffusion_coeff_ * SC_[m][index_i].inverse() * G_[m][index_i];
+            Laplacian_[index_i] =  SC_[m][index_i].inverse() * G_[m][index_i];
 
             Laplacian_x[index_i] = Laplacian_[index_i][0];
             Laplacian_y[index_i] = Laplacian_[index_i][1];
@@ -641,7 +617,77 @@ typedef DataDelegateComplex<ElectroPhysiologyParticlesforLaplacian, BaseParticle
     };
 
 };
- 
+
+ /*
+class AnisotropicDirectionalDiffusion : public DirectionalDiffusion
+{
+  protected:
+    StdLargeVec<Vecd> local_bias_direction_;
+    StdLargeVec<Vecd> local_sheet_direction_;
+    StdLargeVec<Matd> local_transformed_diffusivity_;
+    StdLargeVec<Matd> local_diffusivity_;
+
+  public:
+    AnisotropicDirectionalDiffusion(size_t diffusion_species_index, size_t gradient_species_index,
+                              Real diff_cf, Real bias_diff_cf, Vecd bias_direction)
+        : DirectionalDiffusion(diffusion_species_index, gradient_species_index, diff_cf, bias_diff_cf, bias_direction)
+    {
+        material_type_name_ = "AnisotropicDirectionalDiffusion";
+    };
+    virtual ~AnisotropicDirectionalDiffusion(){};
+
+    virtual void registerReloadLocalParameters(BaseParticles *base_particles) 
+    {
+        base_particles->registerVariable(local_bias_direction_, "Fiber");
+        base_particles->registerVariable(local_sheet_direction_, "Sheet");
+        base_particles->addVariableToReload<Vecd>("Fiber");
+        base_particles->addVariableToReload<Vecd>("Sheet");
+    };
+
+    virtual void initializeLocalParameters(BaseParticles *base_particles) 
+    {
+        DirectionalDiffusion::initializeLocalParameters(base_particles);
+        base_particles->registerVariable(
+            local_transformed_diffusivity_, "LocalTransformedDiffusivity",
+            [&](size_t i) -> Matd
+            {   //    diff_cf_ is for fiber while  bias_diff_cf_ is for sheet
+                Matd diff_i = diff_cf_ * local_bias_direction_[i] *  local_bias_direction_[i].transpose()
+                             + bias_diff_cf_ * local_sheet_direction_[i] * local_sheet_direction_[i].transpose();
+             
+               // std::cout<< diff_cf_ <<"kkk"<< bias_diff_cf_<<std::endl;
+               //  Matd diff_i = diff_cf_ * Matd::Identity() 
+               //             + bias_diff_cf_ * local_bias_direction_[i] * local_bias_direction_[i].transpose();
+        
+                return inverseCholeskyDecomposition(diff_i);
+            });
+
+           base_particles->registerVariable(
+            local_diffusivity_, "LocalDiffusivity",
+            [&](size_t i) -> Matd
+            {   //    diff_cf_ is for fiber while  bias_diff_cf_ is for sheet
+                Matd diff_i = diff_cf_ * local_bias_direction_[i] *  local_bias_direction_[i].transpose()
+                             + bias_diff_cf_ * local_sheet_direction_[i] * local_sheet_direction_[i].transpose();
+             
+               // std::cout<< diff_cf_ <<"kkk"<< bias_diff_cf_<<std::endl;
+               //  Matd diff_i = diff_cf_ * Matd::Identity() 
+               //             + bias_diff_cf_ * local_bias_direction_[i] * local_bias_direction_[i].transpose();
+        
+                return diff_i;
+            });
+
+        std::cout << "\n Local diffusion parameters setup finished " << std::endl;
+    };
+   
+   
+   virtual Real getInterParticleDiffusionCoeff(size_t particle_index_i, size_t particle_index_j, const Vecd &inter_particle_direction) override
+    {
+        Matd trans_diffusivity = getAverageValue(local_transformed_diffusivity_[particle_index_i], local_transformed_diffusivity_[particle_index_j]);
+        Vecd grad_ij = trans_diffusivity * inter_particle_direction;
+        
+        return 1.0 / grad_ij.squaredNorm();
+    };
+};
+*/
 
 ////////////////////////////////////////
 /**
@@ -671,7 +717,7 @@ int main(int ac, char *av[])
         herat_model.generateParticles<ParticleGeneratorLattice>();
 
         SolidBody boundary(sph_system, makeShared<BoundaryModel>("Boundary"));
-        boundary.defineBodyLevelSetShape()->correctLevelSetSign()->writeLevelSet(io_environment);
+        boundary.defineComponentLevelSetShape("OuterBoundary")->writeLevelSet(io_environment);
         boundary.defineParticlesAndMaterial<SolidParticles, Solid>();
         boundary.generateParticles<ParticleGeneratorLattice>();
 
@@ -679,13 +725,14 @@ int main(int ac, char *av[])
         /** topology */
         InnerRelation herat_model_inner(herat_model);
         InnerRelation boundary_model_inner(boundary);
+        ComplexRelation heart_boundary_relaxation_complex(boundary, {&herat_model});
 
         /** Random reset the relax solid particle position. */
         SimpleDynamics<RandomizeParticlePosition> random_particles(herat_model);
         SimpleDynamics<RandomizeParticlePosition> random_particles_boundary(boundary);
        /** A  Physics relaxation step. */
         relax_dynamics::RelaxationStepInner relaxation_step_inner(herat_model_inner);
-        relax_dynamics::RelaxationStepInner relaxation_step_inner_boundary(boundary_model_inner);
+        relax_dynamics::RelaxationStepComplex relaxation_step_complex(heart_boundary_relaxation_complex, "OuterBoundary");
       /** Time step for diffusion. */
         GetDiffusionTimeStepSize<FiberDirectionDiffusionParticles> get_time_step_size(herat_model);
         /** Diffusion process for diffusion body. */
@@ -704,7 +751,7 @@ int main(int ac, char *av[])
         random_particles.exec(0.01);
         random_particles_boundary.exec(0.25);
         relaxation_step_inner.SurfaceBounding().exec();
-        relaxation_step_inner_boundary.SurfaceBounding().exec();
+        relaxation_step_complex.SurfaceBounding().exec();
         write_herat_model_state_to_vtp.writeToFile(0.0);
         write_boundary_model_state_to_vtp.writeToFile(0.0);
         //----------------------------------------------------------------------
@@ -716,7 +763,7 @@ int main(int ac, char *av[])
         while (ite < relax_step)
         { 
             relaxation_step_inner.exec();
-            relaxation_step_inner_boundary.exec();
+            relaxation_step_complex.exec();
             ite++;
             if (ite % 100 == 0)
             {
@@ -807,27 +854,39 @@ int main(int ac, char *av[])
     //----------------------------------------------------------------------
     //	SPH Method section
     //----------------------------------------------------------------------
-    // Corrected configuration.
-  	Dynamics1Level<NonisotropicKernelCorrectionMatrixComplex> correct_configuration_excitation(heart_boundary_complex);
-    physiology_heart.addBodyStateForRecording<Mat3d>("KernelCorrectionMatrix");
+     // Corrected configuration.
+    //InteractionWithUpdate<KernelCorrectionMatrixInner> correct_configuration_excitation(physiology_heart_inner);
+    // Corrected configuration complex
+ 	Dynamics1Level<NonisotropicKernelCorrectionMatrixComplex> correct_configuration_excitation(heart_boundary_complex);
+    InteractionDynamics<NonisotropicKernelCorrectionMatrixComplexAC> correct_second_configuration(heart_boundary_complex);
+
     // Time step size calculation.
     electro_physiology::GetElectroPhysiologyTimeStepSize get_physiology_time_step(physiology_heart);
     // Diffusion process for diffusion body.
    
+   // electro_physiology::ElectroPhysiologyDiffusionInnerRK2 diffusion_relaxation(physiology_heart_inner);
     Dynamics1Level<DiffusionRelaxationComplex>  diffusion_relaxation(heart_boundary_complex);
+
+    physiology_heart.addBodyStateForRecording<Mat3d>("LocalTransformedDiffusivity");
+    physiology_heart.addBodyStateForRecording<Mat3d>("KernelCorrectionMatrix");
+   // physiology_heart.addBodyStateForRecording<Real>("Laplacian_x");
+   //physiology_heart.addBodyStateForRecording<Real>("Laplacian_y");
+  //physiology_heart.addBodyStateForRecording<Real>("Laplacian_z");
+    physiology_heart.addBodyStateForRecording<Real>("VoltageChangeRate");
+
     // Solvers for ODE system.
     electro_physiology::ElectroPhysiologyReactionRelaxationForward reaction_relaxation_forward(physiology_heart);
     electro_physiology::ElectroPhysiologyReactionRelaxationBackward reaction_relaxation_backward(physiology_heart);
     //	Apply the Iron stimulus.
     SimpleDynamics<ApplyStimulusCurrentSI> apply_stimulus_s1(physiology_heart);
-    SimpleDynamics<ApplyStimulusCurrentSII> apply_stimulus_s2(physiology_heart);
+   
     // Active mechanics.
     InteractionWithUpdate<KernelCorrectionMatrixInner> correct_configuration_contraction(mechanics_body_inner);
     InteractionDynamics<CorrectInterpolationKernelWeights> correct_kernel_weights_for_interpolation(mechanics_body_contact);
     /** Interpolate the active contract stress from electrophysiology body. */
     InteractionDynamics<InterpolatingAQuantity<Real>>
         active_stress_interpolation(mechanics_body_contact, "ActiveContractionStress", "ActiveContractionStress");
-    /** Interpolate the particle position in physiology_heart  from mechanics_heart. */
+    /** Interpolate the particle position in physiology_heart from mechanics_heart. */
     // TODO: this is a bug, we should interpolate displacement other than position.
     InteractionDynamics<InterpolatingAQuantity<Vecd>>
         interpolation_particle_position(physiology_heart_contact, "Position", "Position");
@@ -855,6 +914,7 @@ int main(int ac, char *av[])
     sph_system.initializeSystemConfigurations();
     correct_configuration_excitation.exec();
     correct_configuration_contraction.exec();
+    correct_second_configuration.exec();
     correct_kernel_weights_for_interpolation.exec();
     /** Output initial states and observations */
     write_states.writeToFile(0);
@@ -863,11 +923,11 @@ int main(int ac, char *av[])
     //----------------------------------------------------------------------
     //	 Physical parameters for main loop.
     //----------------------------------------------------------------------
-    int screen_output_interval = 10;
+    int screen_output_interval = 100;
     int ite = 0;
     int reaction_step = 2;
     Real end_time = 100;
-    Real Ouput_T = end_time / 200.0;
+    Real Ouput_T = end_time / 50.0;
     Real Observer_time = 0.01 * Ouput_T;
     Real dt = 0.0;   /**< Default acoustic time step sizes for physiology. */
     Real dt_s = 0.0; /**< Default acoustic time step sizes for mechanics. */
@@ -897,20 +957,19 @@ int main(int ac, char *av[])
                 {
                     apply_stimulus_s1.exec(dt);
                 }
-                /** Single spiral wave. */
-                // if( 60 <= GlobalStaticVariables::physical_time_
-                // 	&&  GlobalStaticVariables::physical_time_ <= 65)
-                // {
-                // 	apply_stimulus_s2.exec(dt);
-                // }
+                
                 /**Strong splitting method. */
                 // forward reaction
                 int ite_forward = 0;
+                if (0 < ite && ite < 10 )
+                { write_states.writeToFile(ite);}
+
                 while (ite_forward < reaction_step)
                 {
                     reaction_relaxation_forward.exec(0.5 * dt / Real(reaction_step));
                     ite_forward++;
                 }
+                
                 /** 2nd Runge-Kutta scheme for diffusion. */
                 diffusion_relaxation.exec(dt);
 
@@ -927,7 +986,7 @@ int main(int ac, char *av[])
                 Real dt_s_sum = 0.0;
                 while (dt_s_sum < dt)
                 {
-                    dt_s = get_mechanics_time_step.exec();
+                    dt_s =0.1 *  get_mechanics_time_step.exec();
                     if (dt - dt_s_sum < dt_s)
                         dt_s = dt - dt_s_sum;
                     stress_relaxation_first_half.exec(dt_s);
@@ -937,8 +996,8 @@ int main(int ac, char *av[])
                 }
 
                 ite++;
-                dt = get_physiology_time_step.exec();
-
+                dt = 0.1 * get_physiology_time_step.exec();
+          
                 relaxation_time += dt;
                 integration_time += dt;
                 GlobalStaticVariables::physical_time_ += dt;
