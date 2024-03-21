@@ -29,7 +29,7 @@ Real poisson_ratio = 1.0;
 //----------------------------------------------------------------------
  
 Mat2d decomposed_transform_tensor{ 
-   {0.25, 0.0},  
+     {0.5, 0.0},  
      {0.0, 1.0},
 }; 
 Mat2d inverse_decomposed_transform_tensor =  decomposed_transform_tensor.inverse();
@@ -162,14 +162,17 @@ class NonisotropicKernelCorrectionMatrixComplex : public LocalDynamics, public G
 		GeneralDataDelegateComplex(complex_relation), 
 		B_(*particles_->registerSharedVariable<Mat2d>("KernelCorrectionMatrix")) 
         {
-          particles_->registerVariable(neighbour_, "neighbour", [&](size_t i) -> Real { return Real(0.0); });
+		particles_->registerVariable(neighbour_, "neighbour", [&](size_t i) -> Real { return Real(0.0); });
+		contact_particles_[0]->registerVariable(contact_neighbour_, "contactneighbour", [&](size_t i) -> Real { return Real(0.0); });
+		 
         };
 
     virtual ~NonisotropicKernelCorrectionMatrixComplex(){};
 
   protected:
 	  StdLargeVec<Mat2d> &B_;
-      StdLargeVec<Real> neighbour_;
+	  StdLargeVec<Real> neighbour_;
+	  StdLargeVec<Real> contact_neighbour_;
 
 	  void initialization(size_t index_i, Real dt = 0.0)
 	  {
@@ -177,20 +180,15 @@ class NonisotropicKernelCorrectionMatrixComplex : public LocalDynamics, public G
 		  const Neighborhood &inner_neighborhood = inner_configuration_[index_i];
 		  for (size_t n = 0; n != inner_neighborhood.current_size_; ++n)
 		  {
-
-            size_t index_j = inner_neighborhood.j_[n];
-
+              size_t index_j = inner_neighborhood.j_[n];
 			  Vec2d gradW_ij = inner_neighborhood.dW_ijV_j_[n] * inner_neighborhood.e_ij_[n];
-
-			  Vec2d r_ji = inner_neighborhood.r_ij_vector_[n];
+			  Vec2d r_ji =  inner_neighborhood.r_ij_vector_[n];
 			  local_configuration -= r_ji * gradW_ij.transpose();
 
-                if(index_i == 1540)
+                if(index_i == 359)
                {
-                   neighbour_[index_j] = 1.0;
-                
-                }
-
+                  neighbour_[index_j] = 1.0;
+               }
 		  }
 		  B_[index_i] = local_configuration;
 
@@ -205,14 +203,12 @@ class NonisotropicKernelCorrectionMatrixComplex : public LocalDynamics, public G
 			for (size_t n = 0; n != contact_neighborhood.current_size_; ++n)
 			{
                 size_t index_j = contact_neighborhood.j_[n];
-				Vec2d r_ji = contact_neighborhood.r_ij_vector_[n];
+				Vec2d r_ji =  contact_neighborhood.r_ij_vector_[n];
 				Vec2d gradW_ij = contact_neighborhood.dW_ijV_j_[n] * contact_neighborhood.e_ij_[n];
-				local_configuration -= r_ji * gradW_ij.transpose();
-
-                   if(index_i == 1540)
+				local_configuration -=  r_ji * gradW_ij.transpose();
+                   if(index_i == 359)
                {
-                   neighbour_[index_j] = 1.0;
-                
+				 contact_neighbour_[index_j] = 1.0;		 
                 }
 			}
 		}
@@ -222,9 +218,9 @@ class NonisotropicKernelCorrectionMatrixComplex : public LocalDynamics, public G
 	void update(size_t index_i, Real dt)
 	{
 		Mat2d inverse = B_[index_i].inverse();
-		B_[index_i] = inverse;        
-                   
-	}
+		B_[index_i] = inverse;	
+                    
+	} 
 };
 
 
@@ -234,15 +230,14 @@ class NonisotropicKernelCorrectionMatrixComplexAC : public LocalDynamics, public
   public:
     NonisotropicKernelCorrectionMatrixComplexAC(ComplexRelation &complex_relation): 
                 LocalDynamics(complex_relation.getInnerRelation().getSPHBody()), LaplacianSolidDataComplex(complex_relation),
-                 B_(particles_->B_), A1_(particles_->A1_), A2_(particles_->A2_), A3_(particles_->A3_)  {};
-    
+                 B_(particles_->B_), A1_(particles_->A1_), A2_(particles_->A2_), A3_(particles_->A3_){ };
+                 
     virtual ~NonisotropicKernelCorrectionMatrixComplexAC(){};
 
   protected:
     StdLargeVec<Mat2d> &B_;
     StdLargeVec<Vec2d> &A1_,&A2_,&A3_;
    
-    
     void initialization(size_t index_i, Real dt = 0.0)
     {
         Neighborhood &inner_neighborhood = inner_configuration_[index_i];
@@ -261,6 +256,7 @@ class NonisotropicKernelCorrectionMatrixComplexAC : public LocalDynamics, public
     {
          for (size_t k = 0; k < contact_configuration_.size(); ++k)
         {
+			 
             Neighborhood &contact_neighborhood = (*contact_configuration_[k])[index_i];
             for (size_t n = 0; n != contact_neighborhood.current_size_; ++n)
             { 
@@ -296,8 +292,7 @@ class LaplacianBodyRelaxation : public LocalDynamics, public LaplacianSolidDataC
         particles_->registerVariable(Laplacian_y, "Laplacian_y", [&](size_t i) -> Real { return Real(0.0); });
         particles_->registerVariable(Laplacian_xy, "Laplacian_xy", [&](size_t i) -> Real { return Real(0.0); });
 		particles_->registerVariable(diffusion_dt_, "diffusion_dt", [&](size_t i) -> Real { return Real(0.0); });
- 
- 
+  
         diffusion_coeff_ = particles_->laplacian_solid_.DiffusivityCoefficient();
     };
     virtual ~LaplacianBodyRelaxation(){};
@@ -315,7 +310,6 @@ class LaplacianBodyRelaxation : public LocalDynamics, public LaplacianSolidDataC
 
     StdLargeVec<Real> Laplacian_x, Laplacian_y, Laplacian_xy, diffusion_dt_;
 
-   
     Real diffusion_coeff_;
 
   protected:
@@ -359,8 +353,7 @@ class LaplacianBodyRelaxation : public LocalDynamics, public LaplacianSolidDataC
         
         G_[index_i] = G_rate;
         SC_[index_i] = SC_rate;
-        
-    
+     
     };
 
     void interaction(size_t index_i, Real dt = 0.0)
@@ -477,23 +470,21 @@ class GetLaplacianTimeStepSize : public LocalDynamicsReduce<Real, ReduceMin>,
 //	Main program starts here.
 //----------------------------------------------------------------------
 int main(int ac, char *av[])
-{
-   
+{ 
     //----------------------------------------------------------------------
     //	Build up the environment of a SPHSystem.
     //----------------------------------------------------------------------
     SPHSystem sph_system(system_domain_bounds, resolution_ref);
-
-
+	 
    /** Tag for run particle relaxation for the initial body fitted distribution. */
-    sph_system.setRunParticleRelaxation(false);
+    sph_system.setRunParticleRelaxation(true);
     /** Tag for computation start with relaxed body fitted particles distribution. */
-    sph_system.setReloadParticles(false);
+    sph_system.setReloadParticles(true);
 
     sph_system.handleCommandlineOptions(ac, av);
     IOEnvironment io_environment(sph_system);
 
-          //----------------------------------------------------------------------
+    //----------------------------------------------- -----------------------
     //	Run particle relaxation for body-fitted distribution if chosen.
     //----------------------------------------------------------------------
     if (sph_system.RunParticleRelaxation())
@@ -512,7 +503,7 @@ int main(int ac, char *av[])
 
          InnerRelation diffusion_block_inner_relation(diffusion_block);
          InnerRelation boundary_inner_relation(boundary);
-           ComplexRelation  boundary_complex(boundary, {&diffusion_block});
+         ComplexRelation  boundary_complex(boundary, {&diffusion_block});
         //----------------------------------------------------------------------
         //	Methods used for particle relaxation.
         //----------------------------------------------------------------------
@@ -620,7 +611,7 @@ int main(int ac, char *av[])
 
     diffusion_body.addBodyStateForRecording<Vec2d>("FirstOrderCorrectionVectorE");
 	
-
+	boundary_body.addBodyStateForRecording<Real>("contactneighbour");
     //----------------------------------------------------------------------
     //	Define the methods for I/O operations and observations of the simulation.
     //----------------------------------------------------------------------
