@@ -11,7 +11,7 @@ using namespace SPH;   // Namespace cite here
 Real L = 20.0;
 Real H = 20.0;
   
-int y_num = 60;
+int y_num = 40;
 Real resolution_ref = H / y_num;
  
 BoundingBox system_domain_bounds(Vec2d(-L, -H), Vec2d(2.0 * L, 2.0 * H));
@@ -20,7 +20,7 @@ Real BH = 6.0 * resolution_ref;
 //----------------------------------------------------------------------
 //	Basic parameters for material properties.
 //----------------------------------------------------------------------
-Real diffusion_coeff = 0.5;
+Real diffusion_coeff = 1.0;
 Real rho0 = 1.0;
 Real youngs_modulus = 1.0;
 Real poisson_ratio = 1.0;
@@ -28,11 +28,12 @@ Real poisson_ratio = 1.0;
 //	Geometric shapes used in the case.
 //----------------------------------------------------------------------
  
-Mat2d decomposed_transform_tensor{ 
-     {1.0, 0.0},  
-     {0.0, 1.0},
+Mat2d transform_tensor{ 
+     {0.1, 0.03},  
+     {0.03, 0.03},
 }; 
-Mat2d inverse_decomposed_transform_tensor =  decomposed_transform_tensor.inverse();
+Mat2d inverse_decomposed_transform_tensor =  inverseCholeskyDecomposition(transform_tensor);
+Mat2d  decomposed_transform_tensor =  inverse_decomposed_transform_tensor.inverse();
 
 std::vector<Vec2d> diffusion_shape{Vec2d(0.0, 0.0), Vec2d(0.0, H), Vec2d(L, H), Vec2d(L, 0.0), Vec2d(0.0, 0.0)};
 
@@ -45,7 +46,6 @@ class DiffusionBlock : public MultiPolygonShape
     }
 };
  
-
  
  class LaplacianDiffusionSolid : public LinearElasticSolid
 {
@@ -288,6 +288,10 @@ class LaplacianBodyRelaxation : public LocalDynamics, public LaplacianSolidDataI
         
             E_rate += (phi_[index_k] - phi_[index_i]) * (B_[index_i].transpose() * gradW_ikV_k); // HOW TO DEFINE IT???
         }
+
+         //Vec2d pos_b = pos_[index_i] - compensation_particle_rib_[index_i];  //need to confirm
+         //E_rate += (3.0 * pos_b[0] * pos_b[0] - phi_[index_i]) * (B_[index_i].transpose() * compensation_particle_dw_[index_i]); // HOW TO DEFINE IT???
+          
         E_[index_i] = E_rate;
 
          
@@ -333,8 +337,10 @@ class LaplacianBodyRelaxation : public LocalDynamics, public LaplacianSolidDataI
                C_compen[0] = (r_ib[0] * r_ib[0]- r_ib.dot(A1_[index_i]));
                C_compen[1] = (r_ib[1] * r_ib[1]- r_ib.dot(A2_[index_i]));
                C_compen[2] = (r_ib[0] * r_ib[1]- r_ib.dot(A3_[index_i]));   
-
-        Real FF_compen = 2.0 * (0.0 - r_ib.dot(E_[index_i]));
+        
+         //Vec2d pos_b = pos_[index_i] - compensation_particle_rib_[index_i]; //need to confirm
+        //Real FF_compen = 2.0 * (3.0 * pos_b[0] * pos_b[0] - phi_[index_i] - r_ib.dot(E_[index_i]));
+          Real FF_compen = 2.0 * (0.0 - r_ib.dot(E_[index_i]));
 
         
         SC_rate_contact = S_compen * H_rate_compen * C_compen.transpose();   
@@ -355,11 +361,9 @@ class LaplacianBodyRelaxation : public LocalDynamics, public LaplacianSolidDataI
                   { Laplacian_x[index_i],  0.5 * Laplacian_xy[index_i]},  
                      { 0.5 * Laplacian_xy[index_i],  Laplacian_y[index_i]},
                  }; 
-         Laplacian_transform = decomposed_transform_tensor.transpose() * Laplacian_transform * decomposed_transform_tensor;
-        
-         diffusion_dt_[index_i] =  Laplacian_transform(0,0) + Laplacian_transform(1,1);
-
-
+         Mat2d Laplacian_transform_noniso = inverse_decomposed_transform_tensor.transpose() * Laplacian_transform * inverse_decomposed_transform_tensor ;
+         diffusion_dt_[index_i] =  Laplacian_transform_noniso(0,0) + Laplacian_transform_noniso(1,1);
+ 
     };
 
     void update(size_t index_i, Real dt = 0.0)
@@ -392,7 +396,7 @@ class DiffusionInitialCondition : public LocalDynamics, public LaplacianSolidDat
           
         } 
        
-         phi_[index_i] =  3.0 * pos_[index_i][0] * pos_[index_i][0];
+         //phi_[index_i] =  3.0 * pos_[index_i][0] * pos_[index_i][0];
             
     };
 };
@@ -443,8 +447,6 @@ class GradientCheck : public LocalDynamics, public LaplacianSolidDataInner
 
     void update(size_t index_i, Real dt = 0.0){};
 };
-
- 
 
 class GetLaplacianTimeStepSize : public LocalDynamicsReduce<Real, ReduceMin>,
                                  public LaplacianSolidDataSimple
@@ -612,7 +614,7 @@ int main(int ac, char *av[])
     SimpleDynamics<DiffusionInitialCondition> setup_diffusion_initial_condition(diffusion_body_inner_relation);
   
     diffusion_body.addBodyStateForRecording<Real>("Phi"); 
-  //  diffusion_body.addBodyStateForRecording<Real>("diffusion_dt"); 
+    diffusion_body.addBodyStateForRecording<Real>("diffusion_dt"); 
     diffusion_body.addBodyStateForRecording<Mat2d>("KernelCorrectionMatrix");
  
 
@@ -641,7 +643,7 @@ int main(int ac, char *av[])
     //	Setup for time-stepping control
     //----------------------------------------------------------------------
     int ite = 1;
-    Real T0 = 2920.0;
+    Real T0 = 1920.0;
     Real end_time = T0;
     Real Output_Time = 0.03 * end_time;
     Real Observe_time = 0.1 * Output_Time;
@@ -667,11 +669,11 @@ int main(int ac, char *av[])
             Real relaxation_time = 0.0;
             while (relaxation_time < Observe_time)
             {
-                if(ite < 50)
+                if(ite < 100)
                 {
                      write_states.writeToFile(ite);
                 }
-                dt =  0.1 * get_time_step_size.exec();
+                dt =  0.01 * get_time_step_size.exec();
                 diffusion_relaxation.exec(dt);
                
        
