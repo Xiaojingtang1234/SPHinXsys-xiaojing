@@ -28,11 +28,12 @@ Real poisson_ratio = 1.0;
 //	Geometric shapes used in the case.
 //----------------------------------------------------------------------
  
-Mat2d decomposed_transform_tensor{ 
-     {0.31623,0.0},  
-     {0.0, 0.1},
+Mat2d transform_tensor{ 
+     {0.1, 0.03},  
+     {0.03, 0.03},
 }; 
-Mat2d inverse_decomposed_transform_tensor =  decomposed_transform_tensor.inverse();
+Mat2d inverse_decomposed_transform_tensor = inverseCholeskyDecomposition(transform_tensor);
+Mat2d  decomposed_transform_tensor = inverse_decomposed_transform_tensor.inverse();
 
 std::vector<Vec2d> diffusion_shape{Vec2d(0.0, 0.0), Vec2d(0.0, H), Vec2d(L, H), Vec2d(L, 0.0), Vec2d(0.0, 0.0)};
 
@@ -230,7 +231,7 @@ class NonisotropicKernelCorrectionMatrixComplexAC : public LocalDynamics, public
         for (size_t n = 0; n != inner_neighborhood.current_size_; ++n) // this is ik
         {
             Vec2d gradW_ikV_k = inner_neighborhood.dW_ijV_j_[n] * inner_neighborhood.e_ij_[n];
-            Vec2d r_ik = inverse_decomposed_transform_tensor * -inner_neighborhood.r_ij_vector_[n];
+            Vec2d r_ik =  -inner_neighborhood.r_ij_vector_[n];
             
             A1_[index_i] += r_ik[0] * r_ik[0] * (B_[index_i].transpose() * gradW_ikV_k);
             A2_[index_i] += r_ik[1] * r_ik[1] * (B_[index_i].transpose() * gradW_ikV_k);
@@ -246,7 +247,7 @@ class NonisotropicKernelCorrectionMatrixComplexAC : public LocalDynamics, public
             for (size_t n = 0; n != contact_neighborhood.current_size_; ++n)
             { 
                 Vec2d gradW_ikV_k = contact_neighborhood.dW_ijV_j_[n] * contact_neighborhood.e_ij_[n];  
-                Vec2d r_ik = inverse_decomposed_transform_tensor * -contact_neighborhood.r_ij_vector_[n];
+                Vec2d r_ik =  -contact_neighborhood.r_ij_vector_[n];
              
                 A1_[index_i] += r_ik[0] * r_ik[0] * (B_[index_i].transpose() * gradW_ikV_k);
                 A2_[index_i] += r_ik[1] * r_ik[1] * (B_[index_i].transpose() * gradW_ikV_k);
@@ -320,7 +321,7 @@ class LaplacianBodyRelaxation : public LocalDynamics, public LaplacianSolidDataC
          for (size_t n = 0; n != inner_neighborhood.current_size_; ++n) // this is ik
         {
             size_t index_j = inner_neighborhood.j_[n];
-            Vec2d r_ij = inverse_decomposed_transform_tensor *  -inner_neighborhood.r_ij_vector_[n];
+            Vec2d r_ij = -inner_neighborhood.r_ij_vector_[n];
 
             Vec2d gradW_ijV_j = inner_neighborhood.dW_ijV_j_[n] * inner_neighborhood.e_ij_[n];
             Vec3d S_ = Vec3d(r_ij[0] * r_ij[0], r_ij[1] * r_ij[1], r_ij[0] * r_ij[1]);
@@ -331,9 +332,10 @@ class LaplacianBodyRelaxation : public LocalDynamics, public LaplacianSolidDataC
             
              //TO DO
             Vec3d C_ = Vec3d::Zero();
-            C_[0] = (r_ij[0] * r_ij[0]);
-            C_[1] = (r_ij[1] * r_ij[1]);
-            C_[2] = (r_ij[0] * r_ij[1]);
+            C_[0] = (r_ij[0] * r_ij[0]- r_ij.dot(A1_[index_i]));
+            C_[1] = (r_ij[1] * r_ij[1]- r_ij.dot(A2_[index_i]));
+            C_[2] = (r_ij[0] * r_ij[1]- r_ij.dot(A3_[index_i]));
+          
             SC_rate += S_ *H_rate* C_.transpose();   
 
         }
@@ -354,7 +356,7 @@ class LaplacianBodyRelaxation : public LocalDynamics, public LaplacianSolidDataC
             Neighborhood &contact_neighborhood = (*contact_configuration_[k])[index_i];
             for (size_t n = 0; n != contact_neighborhood.current_size_; ++n)
             {
-                Vec2d r_ij = inverse_decomposed_transform_tensor * -contact_neighborhood.r_ij_vector_[n];
+                Vec2d r_ij = -contact_neighborhood.r_ij_vector_[n];
                 Vec2d gradW_ijV_j = contact_neighborhood.dW_ijV_j_[n] * contact_neighborhood.e_ij_[n];
 
             
@@ -364,10 +366,10 @@ class LaplacianBodyRelaxation : public LocalDynamics, public LaplacianSolidDataC
 		
                 //TO DO
                 Vec3d C_ = Vec3d::Zero();
-                C_[0] = (r_ij[0] * r_ij[0]);
-                C_[1] = (r_ij[1] * r_ij[1]);
-                C_[2] = (r_ij[0] * r_ij[1]);
-
+                C_[0] = (r_ij[0] * r_ij[0]- r_ij.dot(A1_[index_i]));
+                C_[1] = (r_ij[1] * r_ij[1]- r_ij.dot(A2_[index_i]));
+                C_[2] = (r_ij[0] * r_ij[1]- r_ij.dot(A3_[index_i]));
+          
                 SC_rate_contact += S_ * H_rate_contact * C_.transpose();
                 G_rate_contact += S_ * H_rate_contact * FF_;
 
@@ -376,17 +378,20 @@ class LaplacianBodyRelaxation : public LocalDynamics, public LaplacianSolidDataC
             G_[index_i] += G_rate_contact;
         }
 
-        Laplacian_[index_i] = diffusion_coeff_ * SC_[index_i].inverse() * G_[index_i];
+        Laplacian_[index_i] = SC_[index_i].inverse() * G_[index_i];
 
-        Laplacian_x[index_i] = Laplacian_[index_i][0];
-        Laplacian_y[index_i] = Laplacian_[index_i][1];
-        Laplacian_xy[index_i] = Laplacian_[index_i][2];
-		diffusion_dt_[index_i] = Laplacian_[index_i][0] + Laplacian_[index_i][1];
-    };
+      Mat2d Laplacian_transform = Mat2d { 
+                  { Laplacian_[index_i][0],  0.5 *Laplacian_[index_i][2]},  
+                     { 0.5 * Laplacian_[index_i][2],  Laplacian_[index_i][1]},
+                 }; 
+        Mat2d Laplacian_transform_noniso = decomposed_transform_tensor * Laplacian_transform * decomposed_transform_tensor.transpose() ;
+        diffusion_dt_[index_i] =  Laplacian_transform_noniso(0,0) + Laplacian_transform_noniso(1,1);
+      
+   };
 
     void update(size_t index_i, Real dt = 0.0)
     {
-        phi_[index_i] += dt * (Laplacian_[index_i][0] + Laplacian_[index_i][1]);
+        phi_[index_i] += dt * diffusion_dt_[index_i];
     };
 };
 
@@ -494,8 +499,7 @@ class DiffusionInitialCondition : public LocalDynamics, public LaplacianSolidDat
                 phi_[index_i] = 1.0;
             }
           
-        } 
-     //    phi_[index_i] = 3.0 * pos_[index_i][0] * pos_[index_i][0];
+        }  
        
     };
 };
@@ -530,8 +534,7 @@ class GetLaplacianTimeStepSize : public LocalDynamicsReduce<Real, ReduceMin>,
 //----------------------------------------------------------------------
 int main(int ac, char *av[])
 {
-   
-    //----------------------------------------------------------------------
+  //----------------------------------------------------------------------
     //	Build up the environment of a SPHSystem.
     //----------------------------------------------------------------------
     SPHSystem sph_system(system_domain_bounds, resolution_ref);
@@ -594,7 +597,7 @@ int main(int ac, char *av[])
     //----------------------------------------------------------------------
     //	Define the methods for I/O operations and observations of the simulation.
     //----------------------------------------------------------------------
-    BodyStatesRecordingToVtp write_states(io_environment, sph_system.real_bodies_);
+    BodyStatesRecordingToPlt write_states(io_environment, sph_system.real_bodies_);
     RegressionTestEnsembleAverage<ObservedQuantityRecording<Real>>
         write_solid_temperature("Phi", io_environment, temperature_observer_contact);
 
@@ -642,7 +645,7 @@ int main(int ac, char *av[])
             Real relaxation_time = 0.0;
             while (relaxation_time < Observe_time)
             {
-                dt =  0.1 * get_time_step_size.exec();
+                dt = get_time_step_size.exec();
                 diffusion_relaxation.exec(dt);
        
              
