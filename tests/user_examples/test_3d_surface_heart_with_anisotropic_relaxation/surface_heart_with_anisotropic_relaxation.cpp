@@ -24,7 +24,7 @@ Vec3d domain_upper_bound(45.0 * length_scale, 15.0 * length_scale, 45.0 * length
 
  
 
-Real dp_0 = (domain_upper_bound[0] - domain_lower_bound[0]) / 180.0; /**< Initial particle spacing. */
+Real dp_0 = (domain_upper_bound[0] - domain_lower_bound[0]) / 60.0; /**< Initial particle spacing. */
 /** Domain bounds of the system. */
 BoundingBox system_domain_bounds(domain_lower_bound, domain_upper_bound);
 
@@ -215,6 +215,41 @@ class HeartObserverParticleGenerator : public ObserverParticleGenerator
 using Mat6d = Eigen::Matrix<Real, 6, 6>;
 using Vec6d = Eigen::Matrix<Real, 6, 1>;
  
+/**
+ * @class LocalDirectionalDiffusion
+ * @brief Diffusion is biased along a specific direction.
+ */
+class AnisotropicLocalDirectionalDiffusion : public LocalDirectionalDiffusion
+{
+  protected:
+    StdLargeVec<Mat3d> decomposed_transform_tensor_;
+
+  public:
+    AnisotropicLocalDirectionalDiffusion(size_t diffusion_species_index, size_t gradient_species_index,
+                              Real diff_cf, Real bias_diff_cf, Vecd bias_direction)
+        : LocalDirectionalDiffusion(diffusion_species_index, gradient_species_index, diff_cf, bias_diff_cf, bias_direction)
+    {
+        material_type_name_ = "AnisotropicLocalDirectionalDiffusion";
+    };
+    virtual ~AnisotropicLocalDirectionalDiffusion(){};
+
+  
+   virtual void initializeLocalParameters(BaseParticles *base_particles)
+   {
+      LocalDirectionalDiffusion::initializeLocalParameters(base_particles);
+      base_particles->registerVariable(
+        decomposed_transform_tensor_, "DecomposedTransformTensor",
+        [&](size_t i) -> Mat3d
+        {
+           Mat3d decomposed_transform_tensor =  
+                    inverseCholeskyDecomposition(local_transformed_diffusivity_[i]).inverse();
+          return decomposed_transform_tensor;
+        });
+
+    std::cout << "\n Anisotropic Local diffusion parameters setup finished " << std::endl;
+  };
+
+};
 
 
 class ElectroPhysiologyParticlesforLaplacian
@@ -262,12 +297,8 @@ class NonisotropicKernelCorrectionMatrix : public LocalDynamics, public Laplacia
 		B_(particles_->B_),pos_(particles_->pos_),
         compensation_particle_dw_(particles_->compensation_particle_dw_),
         compensation_particle_rib_(particles_->compensation_particle_rib_) 
-        //,distance(*particles_->getVariableByName<Real>("Distance")) 
-      //  ,real_body_(inner_relation.real_body_), near_shape_surface_(*real_body_),
-      //  level_set_shape_(&near_shape_surface_.level_set_shape_)
         { 
-                particles_->registerVariable(distance, "Distance_", [&](size_t i) -> Real { return Real(0.0); });		 
-      
+          particles_->registerVariable(distance, "Distance_", [&](size_t i) -> Real { return Real(0.0); });		 
         };
 
     virtual ~NonisotropicKernelCorrectionMatrix(){};
@@ -278,17 +309,12 @@ class NonisotropicKernelCorrectionMatrix : public LocalDynamics, public Laplacia
       StdLargeVec<Vec3d> &pos_; 
       StdLargeVec<Vec3d> &compensation_particle_dw_;
       StdLargeVec<Vec3d> &compensation_particle_rib_;
-    
-     // RealBody *real_body_;
-     // NearShapeSurface near_shape_surface_;
-     // LevelSetShape *level_set_shape_;
+ 
 
       StdLargeVec<Real> distance;
  
 	  void initialization(size_t index_i, Real dt = 0.0)
 	  {
-         // distance_[index_i]  = level_set_shape_->findSignedDistance(pos_[index_i]);
-
         distance[index_i] = sph_body_.body_shape_->findSignedDistance(pos_[index_i]);//this is right
          
          if(fabs(distance[index_i])< 5.0 * dp_0)
@@ -410,7 +436,7 @@ class NonisotropicKernelCorrectionMatrixComplexAC : public LocalDynamics, public
     StdLargeVec<Real> diffusion_dt_;
    
     StdLargeVec<Vec3d> &pos_;
-    StdLargeVec<Mat3d> &B_, &local_transformed_diffusivity_;
+    StdLargeVec<Mat3d> &B_, &decomposed_transform_tensor;
 
     StdLargeVec<Vec3d> E_;
     
@@ -427,7 +453,7 @@ class NonisotropicKernelCorrectionMatrixComplexAC : public LocalDynamics, public
       LocalDynamics(inner_relation.getSPHBody()), LaplacianSolidDataInner(inner_relation),
       voltage_(*particles_->registerSharedVariable<Real>("Voltage")),
       pos_(particles_->pos_), B_(particles_->B_),
-      local_transformed_diffusivity_(*particles_->registerSharedVariable<Mat3d>("LocalTransformedDiffusivity")),
+      decomposed_transform_tensor(*particles_->registerSharedVariable<Mat3d>("DecomposedTransformTensor")),
       particle_number(inner_relation.getSPHBody().getBaseParticles().real_particles_bound_)
       , A1_(particles_->A1_), A2_(particles_->A2_), A3_(particles_->A3_) , A4_(particles_->A4_), A5_(particles_->A5_), A6_(particles_->A6_)
        , compensation_particle_dw_(particles_->compensation_particle_dw_),
@@ -540,12 +566,10 @@ class NonisotropicKernelCorrectionMatrixComplexAC : public LocalDynamics, public
                      {0.5 * Laplacian_[index_i][3],   Laplacian_[index_i][1], 0.5 * Laplacian_[index_i][4]},
                       {0.5 * Laplacian_[index_i][5],  0.5 * Laplacian_[index_i][4],  Laplacian_[index_i][2]}
                  }; 
-        Mat3d inverse_decomposed_transform_tensor =  inverseCholeskyDecomposition(local_transformed_diffusivity_[index_i]);
-        Mat3d  decomposed_transform_tensor =  inverse_decomposed_transform_tensor.inverse();
-        Mat3d Laplacian_noniso = decomposed_transform_tensor * Laplacian_transform 
-                              * decomposed_transform_tensor.transpose();
-      
-      
+     
+       Mat3d Laplacian_noniso = decomposed_transform_tensor[index_i]  * Laplacian_transform 
+                              * decomposed_transform_tensor[index_i].transpose();
+        
         diffusion_dt_[index_i]  =  Laplacian_noniso(0,0) + Laplacian_noniso(1,1) + Laplacian_noniso(2,2);
          
     };
@@ -738,10 +762,9 @@ int main(int ac, char *av[])
     /** create a SPH body, material and particles */
     SolidBody physiology_heart(sph_system, makeShared<Heart>("PhysiologyHeart"));
     SharedPtr<AlievPanfilowModel> muscle_reaction_model_ptr = makeShared<AlievPanfilowModel>(k_a, c_m, k, a, b, mu_1, mu_2, epsilon);
- //   physiology_heart.defineAdaptationRatios(1.3, 1.0);
      physiology_heart.defineParticlesAndMaterial<
         ElectroPhysiologyParticlesforLaplacian, MonoFieldElectroPhysiology>(
-        muscle_reaction_model_ptr, TypeIdentity<LocalDirectionalDiffusion>(), diffusion_coeff, bias_coeff, fiber_direction);
+        muscle_reaction_model_ptr, TypeIdentity<AnisotropicLocalDirectionalDiffusion>(), diffusion_coeff, bias_coeff, fiber_direction);
     (!sph_system.RunParticleRelaxation() && sph_system.ReloadParticles())
         ? physiology_heart.generateParticles<ParticleGeneratorReload>(io_environment, "HeartModel")
         : physiology_heart.generateParticles<ParticleGeneratorLattice>();
@@ -788,9 +811,9 @@ int main(int ac, char *av[])
 
     physiology_heart.addBodyStateForRecording<Vec3d>("CompensationDw");
     physiology_heart.addBodyStateForRecording<Vec3d>("CompensationRib");
-    physiology_heart.addBodyStateForRecording<Mat3d>("KernelCorrectionMatrix");
     physiology_heart.addBodyStateForRecording<Real>("VoltageChangeRate");
       physiology_heart.addBodyStateForRecording<Mat3d>("LocalTransformedDiffusivity");
+      physiology_heart.addBodyStateForRecording<Mat3d>("DecomposedTransformTensor");
   
     physiology_heart.addBodyStateForRecording<Real>("Gradient");
 
@@ -837,7 +860,7 @@ int main(int ac, char *av[])
     correct_configuration_contraction.exec();
      correct_kernel_weights_for_interpolation.exec();
     /** Output initial states and observations */
-   // write_states.writeToFile(0);
+     write_states.writeToFile(0);
     write_voltage.writeToFile(0); 
     gradient_check.exec(0.0);
      write_displacement.writeToFile(0);
@@ -895,7 +918,7 @@ int main(int ac, char *av[])
                 
                 /** 2nd Runge-Kutta scheme for diffusion. */
                  diffusion_relaxation.exec(dt);
-                 if(ite < 10)
+                 if(ite < 5)
                 {
                      write_states.writeToFile(ite);
                 }
