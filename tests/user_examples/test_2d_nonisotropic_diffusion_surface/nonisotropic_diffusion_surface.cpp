@@ -36,13 +36,17 @@ Mat2d inverse_decomposed_transform_tensor =  inverseCholeskyDecomposition(transf
 Mat2d  decomposed_transform_tensor =  inverse_decomposed_transform_tensor.inverse();
 
 std::vector<Vec2d> diffusion_shape{Vec2d(0.0, 0.0), Vec2d(0.0, H), Vec2d(L, H), Vec2d(L, 0.0), Vec2d(0.0, 0.0)};
+std::vector<Vec2d> sub_shape{Vec2d(0.2*L, 0.2*H), Vec2d(0.2*L, 0.4*H), Vec2d(0.4*L, 0.4*H), Vec2d(0.4*L, 0.2*H), Vec2d(0.2*L, 0.2*H)};
 
 class DiffusionBlock : public MultiPolygonShape
 {
   public:
     explicit DiffusionBlock(const std::string &shape_name) : MultiPolygonShape(shape_name)
     {
+      // Vec2d center = Vec2d(0.5 * L, 0.5 * H);
         multi_polygon_.addAPolygon(diffusion_shape, ShapeBooleanOps::add);
+       // multi_polygon_.addAPolygon(sub_shape, ShapeBooleanOps::sub);
+        //multi_polygon_.addACircle(center, 0.2 * L, 200 , ShapeBooleanOps::sub);
     }
 };
  
@@ -361,7 +365,7 @@ class LaplacianBodyRelaxation : public LocalDynamics, public LaplacianSolidDataI
                   { Laplacian_x[index_i],  0.5 * Laplacian_xy[index_i]},  
                      { 0.5 * Laplacian_xy[index_i],  Laplacian_y[index_i]},
                  }; 
-         Mat2d Laplacian_transform_noniso = inverse_decomposed_transform_tensor.transpose() * Laplacian_transform * inverse_decomposed_transform_tensor ;
+         Mat2d Laplacian_transform_noniso = decomposed_transform_tensor * Laplacian_transform * decomposed_transform_tensor.transpose() ;
          diffusion_dt_[index_i] =  Laplacian_transform_noniso(0,0) + Laplacian_transform_noniso(1,1);
  
     };
@@ -669,18 +673,20 @@ int main(int ac, char *av[])
             Real relaxation_time = 0.0;
             while (relaxation_time < Observe_time)
             {
-                if(ite < 100)
+              
+                dt = get_time_step_size.exec();
+                diffusion_relaxation.exec(dt);
+
+                if(ite < 10)
                 {
                      write_states.writeToFile(ite);
                 }
-                dt =  0.01 * get_time_step_size.exec();
-                diffusion_relaxation.exec(dt);
-               
        
              
-                if (ite % 1000 == 0)
+                if (ite % 100 == 0)
                 {
-                    std::cout << "N=" << ite << " Time: "
+                          write_states.writeToFile(ite);
+       std::cout << "N=" << ite << " Time: "
                               << GlobalStaticVariables::physical_time_ << "	dt: "
                               << dt << "\n";
                 } 

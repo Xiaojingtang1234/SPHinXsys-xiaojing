@@ -394,7 +394,7 @@ class LaplacianBodyRelaxation : public LocalDynamics, public LaplacianSolidDataC
                   { Laplacian_[index_i][0],  0.5 * Laplacian_[index_i][2]},  
                      { 0.5 * Laplacian_[index_i][2],  Laplacian_[index_i][1]},
                  }; 
-         Laplacian_transform = decomposed_transform_tensor.transpose() * Laplacian_transform * decomposed_transform_tensor;
+         Laplacian_transform = decomposed_transform_tensor * Laplacian_transform * decomposed_transform_tensor.transpose();
         
          diffusion_dt_[index_i] =  Laplacian_transform(0,0) + Laplacian_transform(1,1);
 
