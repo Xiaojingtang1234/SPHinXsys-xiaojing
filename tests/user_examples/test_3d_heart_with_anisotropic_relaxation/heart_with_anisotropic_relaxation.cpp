@@ -36,13 +36,15 @@ Real rho0_s = 1.06e-3;
 Real k_a = 100 * stress_scale;
 Real a0[4] = {Real(496.0) * stress_scale, Real(15196.0) * stress_scale, Real(3283.0) * stress_scale, Real(662.0) * stress_scale};
 Real b0[4] = {Real(7.209), Real(20.417), Real(11.176), Real(9.466)};
+//Real a0[4] = {Real(496.0) * stress_scale, Real(15196.0) * stress_scale, Real(3283.0) * stress_scale, Real(662.0) * stress_scale};
+//Real b0[4] = {Real(8.023), Real(16.026), Real(11.12), Real(11.436)};
 /** reference stress to achieve weakly compressible condition */
 Real poisson = 0.4995;
 Real bulk_modulus = 2.0 * a0[0] * (1.0 + poisson) / (3.0 * (1.0 - 2.0 * poisson));
 /** Electrophysiology parameters. */
 std::array<std::string, 1> species_name_list{"Phi"};
-Real diffusion_coeff = 0.8;
-Real bias_coeff = 0.08;
+Real diffusion_coeff = 1.0;
+Real bias_coeff = 0.0;
 /** Electrophysiology parameters. */
 Real c_m = 1.0;
 Real k = 8.0;
@@ -238,6 +240,7 @@ class ApplyStimulusCurrentSI
         }
     };
 };
+
 /**
  * application dependent initial condition
  */
@@ -416,7 +419,7 @@ class NonisotropicKernelCorrectionMatrixComplexAC : public LocalDynamics, public
    
     StdLargeVec<Vec3d> &pos_;
     StdLargeVec<Mat3d> &B_;
-    StdLargeVec<Mat3d> &local_transformed_diffusivity_;
+    StdLargeVec<Mat3d> &decomposed_transform_tensor;
 
     StdLargeVec<Vec3d>  E_;
     
@@ -433,8 +436,8 @@ class NonisotropicKernelCorrectionMatrixComplexAC : public LocalDynamics, public
       LocalDynamics(complex_relation.getSPHBody()), DiffusionReactionComplexData(complex_relation),
       material_(this->particles_->diffusion_reaction_material_), voltage_(*particles_->registerSharedVariable<Real>("Voltage")),
       pos_(particles_->pos_), B_(particles_->B_),
-      local_transformed_diffusivity_(*particles_->registerSharedVariable<Mat3d>("LocalTransformedDiffusivity")),
-      particle_number(complex_relation.getSPHBody().getBaseParticles().real_particles_bound_)
+        decomposed_transform_tensor(*particles_->registerSharedVariable<Mat3d>("DecomposedTransformTensor")),
+        particle_number(complex_relation.getSPHBody().getBaseParticles().real_particles_bound_)
       , A1_(particles_->A1_), A2_(particles_->A2_), A3_(particles_->A3_) , A4_(particles_->A4_), A5_(particles_->A5_), A6_(particles_->A6_)
       { 
         this->particles_->registerVariable(diffusion_dt_, "VoltageChangeRate", [&](size_t i) -> Real { return Real(0.0); });
@@ -547,9 +550,9 @@ class NonisotropicKernelCorrectionMatrixComplexAC : public LocalDynamics, public
                      {0.5 * Laplacian_[index_i][3],   Laplacian_[index_i][1], 0.5 * Laplacian_[index_i][4]},
                       {0.5 * Laplacian_[index_i][5],  0.5 * Laplacian_[index_i][4],  Laplacian_[index_i][2]}
                  }; 
-         Laplacian_transform = (local_transformed_diffusivity_[index_i].inverse()).transpose() * Laplacian_transform * (local_transformed_diffusivity_[index_i].inverse());
-                
-        diffusion_dt_[index_i]  =  Laplacian_transform(0,0) + Laplacian_transform(1,1) + Laplacian_transform(2,2);
+         Mat3d Laplacian_noniso = decomposed_transform_tensor[index_i]  * Laplacian_transform 
+                              * decomposed_transform_tensor[index_i].transpose();
+        diffusion_dt_[index_i]  =  Laplacian_noniso(0,0) + Laplacian_noniso(1,1) + Laplacian_noniso(2,2);
          
         
     };
@@ -562,6 +565,38 @@ class NonisotropicKernelCorrectionMatrixComplexAC : public LocalDynamics, public
 
 };
 
+
+class AnisotropicLocalDirectionalDiffusion : public LocalDirectionalDiffusion
+{
+  protected:
+    StdLargeVec<Mat3d> decomposed_transform_tensor_;
+
+  public:
+    AnisotropicLocalDirectionalDiffusion(size_t diffusion_species_index, size_t gradient_species_index,
+                              Real diff_cf, Real bias_diff_cf, Vecd bias_direction)
+        : LocalDirectionalDiffusion(diffusion_species_index, gradient_species_index, diff_cf, bias_diff_cf, bias_direction)
+    {
+        material_type_name_ = "AnisotropicLocalDirectionalDiffusion";
+    };
+    virtual ~AnisotropicLocalDirectionalDiffusion(){};
+
+  
+   virtual void initializeLocalParameters(BaseParticles *base_particles)
+   {
+      LocalDirectionalDiffusion::initializeLocalParameters(base_particles);
+      base_particles->registerVariable(
+        decomposed_transform_tensor_, "DecomposedTransformTensor",
+        [&](size_t i) -> Mat3d
+        {
+           Mat3d decomposed_transform_tensor =  
+                    inverseCholeskyDecomposition(local_transformed_diffusivity_[i]).inverse();
+          return decomposed_transform_tensor;
+        });
+
+    std::cout << "\n Anisotropic Local diffusion parameters setup finished " << std::endl;
+  };
+
+};
  
 ////////////////////////////////////////
 /**
@@ -685,7 +720,7 @@ int main(int ac, char *av[])
     SharedPtr<AlievPanfilowModel> muscle_reaction_model_ptr = makeShared<AlievPanfilowModel>(k_a, c_m, k, a, b, mu_1, mu_2, epsilon);
     physiology_heart.defineParticlesAndMaterial<
         ElectroPhysiologyParticlesforLaplacian, MonoFieldElectroPhysiology>(
-        muscle_reaction_model_ptr, TypeIdentity<LocalDirectionalDiffusion>(), diffusion_coeff, bias_coeff, fiber_direction);
+        muscle_reaction_model_ptr, TypeIdentity<AnisotropicLocalDirectionalDiffusion>(), diffusion_coeff, bias_coeff, fiber_direction);
     (!sph_system.RunParticleRelaxation() && sph_system.ReloadParticles())
         ? physiology_heart.generateParticles<ParticleGeneratorReload>(io_environment, "HeartModel")
         : physiology_heart.generateParticles<ParticleGeneratorLattice>();
@@ -729,25 +764,18 @@ int main(int ac, char *av[])
     //----------------------------------------------------------------------
     //	SPH Method section
     //----------------------------------------------------------------------
-     // Corrected configuration.
-  //InteractionWithUpdate<KernelCorrectionMatrixInner> correct_configuration_excitation(physiology_heart_inner);
     // Corrected configuration complex
  	Dynamics1Level<NonisotropicKernelCorrectionMatrixComplex> correct_configuration_excitation(heart_boundary_complex);
-    InteractionDynamics<NonisotropicKernelCorrectionMatrixComplexAC> correct_second_configuration(heart_boundary_complex);
+    Dynamics1Level<NonisotropicKernelCorrectionMatrixComplexAC> correct_second_configuration(heart_boundary_complex);
 
     // Time step size calculation.
     electro_physiology::GetElectroPhysiologyTimeStepSize get_physiology_time_step(physiology_heart);
     // Diffusion process for diffusion body.
-   
-    //  electro_physiology::ElectroPhysiologyDiffusionInnerRK2 diffusion_relaxation(physiology_heart_inner);
       Dynamics1Level<DiffusionRelaxationComplex>  diffusion_relaxation(heart_boundary_complex);
 
     physiology_heart.addBodyStateForRecording<Mat3d>("LocalTransformedDiffusivity");
-    physiology_heart.addBodyStateForRecording<Mat3d>("KernelCorrectionMatrix");
     physiology_heart.addBodyStateForRecording<Real>("VoltageChangeRate");
-    physiology_heart.addBodyStateForRecording<Vec3d>("VoltageFirstOrderCorrectionVectorE");
-    physiology_heart.addBodyStateForRecording<Vec3d>("FirstOrderCorrectionVectorA1");
-    physiology_heart.addBodyStateForRecording<Vec3d>("FirstOrderCorrectionVectorA2");
+
 
     // Solvers for ODE system.
     electro_physiology::ElectroPhysiologyReactionRelaxationForward reaction_relaxation_forward(physiology_heart);
@@ -756,32 +784,32 @@ int main(int ac, char *av[])
     SimpleDynamics<ApplyStimulusCurrentSI> apply_stimulus_s1(physiology_heart);
    
     // Active mechanics.
-   //InteractionWithUpdate<KernelCorrectionMatrixInner> correct_configuration_contraction(mechanics_body_inner);
- //  InteractionDynamics<CorrectInterpolationKernelWeights> correct_kernel_weights_for_interpolation(mechanics_body_contact);
+   InteractionWithUpdate<KernelCorrectionMatrixInner> correct_configuration_contraction(mechanics_body_inner);
+   InteractionDynamics<CorrectInterpolationKernelWeights> correct_kernel_weights_for_interpolation(mechanics_body_contact);
     /** Interpolate the active contract stress from electrophysiology body. */
    InteractionDynamics<InterpolatingAQuantity<Real>>
       active_stress_interpolation(mechanics_body_contact, "ActiveContractionStress", "ActiveContractionStress");
     /** Interpolate the particle position in physiology_heart from mechanics_heart. */
     // TODO: this is a bug, we should interpolate displacement other than position.
-   // InteractionDynamics<InterpolatingAQuantity<Vecd>>
-  //      interpolation_particle_position(physiology_heart_contact, "Position", "Position");
+    InteractionDynamics<InterpolatingAQuantity<Vecd>>
+        interpolation_particle_position(physiology_heart_contact, "Position", "Position");
     /** Time step size calculation. */
-   // ReduceDynamics<solid_dynamics::AcousticTimeStepSize> get_mechanics_time_step(mechanics_heart);
+    ReduceDynamics<solid_dynamics::AcousticTimeStepSize> get_mechanics_time_step(mechanics_heart);
     /** active and passive stress relaxation. */
-  /// Dynamics1Level<solid_dynamics::Integration1stHalfPK2> stress_relaxation_first_half(mechanics_body_inner);
-   // Dynamics1Level<solid_dynamics::Integration2ndHalf> stress_relaxation_second_half(mechanics_body_inner);
+   Dynamics1Level<solid_dynamics::Integration1stHalfPK2> stress_relaxation_first_half(mechanics_body_inner);
+    Dynamics1Level<solid_dynamics::Integration2ndHalf> stress_relaxation_second_half(mechanics_body_inner);
     /** Constrain region of the inserted body. */
- //   MuscleBaseShapeParameters muscle_base_parameters;
- //   BodyRegionByParticle muscle_base(mechanics_heart, makeShared<TriangleMeshShapeBrick>(muscle_base_parameters, "Holder"));
- //   SimpleDynamics<solid_dynamics::FixBodyPartConstraint> constraint_holder(muscle_base);
+   MuscleBaseShapeParameters muscle_base_parameters;
+    BodyRegionByParticle muscle_base(mechanics_heart, makeShared<TriangleMeshShapeBrick>(muscle_base_parameters, "Holder"));
+    SimpleDynamics<solid_dynamics::FixBodyPartConstraint> constraint_holder(muscle_base);
     //----------------------------------------------------------------------
     //	SPH Output section
     //----------------------------------------------------------------------
     BodyStatesRecordingToVtp write_states(io_environment, sph_system.real_bodies_);
     RegressionTestDynamicTimeWarping<ObservedQuantityRecording<Real>>
         write_voltage("Voltage", io_environment, voltage_observer_contact);
-   // RegressionTestDynamicTimeWarping<ObservedQuantityRecording<Vecd>>
-   //     write_displacement("Position", io_environment, myocardium_observer_contact);
+    RegressionTestDynamicTimeWarping<ObservedQuantityRecording<Vecd>>
+        write_displacement("Position", io_environment, myocardium_observer_contact);
     //----------------------------------------------------------------------
     //	 Pre-simulation.
     //----------------------------------------------------------------------
@@ -789,12 +817,12 @@ int main(int ac, char *av[])
     sph_system.initializeSystemConfigurations();
     correct_configuration_excitation.exec();
     correct_second_configuration.exec(); 
-   // correct_configuration_contraction.exec();
-    //correct_kernel_weights_for_interpolation.exec();
+    correct_configuration_contraction.exec();
+    correct_kernel_weights_for_interpolation.exec();
     /** Output initial states and observations */
     write_states.writeToFile(0);
     write_voltage.writeToFile(0);
-    //write_displacement.writeToFile(0);
+    write_displacement.writeToFile(0);
     //----------------------------------------------------------------------
     //	 Physical parameters for main loop.
     //----------------------------------------------------------------------
@@ -854,19 +882,19 @@ int main(int ac, char *av[])
                     ite_backward++;
                 } 
 
-               /* active_stress_interpolation.exec();
+                active_stress_interpolation.exec();
 
                 Real dt_s_sum = 0.0;
                 while (dt_s_sum < dt)
                 {
-                    dt_s =0.1 *  get_mechanics_time_step.exec();
+                    dt_s = 0.1 *  get_mechanics_time_step.exec();
                     if (dt - dt_s_sum < dt_s)
                         dt_s = dt - dt_s_sum;
                     stress_relaxation_first_half.exec(dt_s);
                     constraint_holder.exec(dt_s);
                     stress_relaxation_second_half.exec(dt_s);
                     dt_s_sum += dt_s;
-                }*/ 
+                }
 
                 ite++;
                 dt = 0.1 * get_physiology_time_step.exec();
@@ -874,16 +902,13 @@ int main(int ac, char *av[])
                 relaxation_time += dt;
                 integration_time += dt;
                 GlobalStaticVariables::physical_time_ += dt;
-
-                 
-
-                 
+        
             }
             write_voltage.writeToFile(ite);
-           // write_displacement.writeToFile(ite);
+            write_displacement.writeToFile(ite);
         }
         TickCount t2 = TickCount::now();
-        //interpolation_particle_position.exec();
+        interpolation_particle_position.exec();
         write_states.writeToFile();
         TickCount t3 = TickCount::now();
         interval += t3 - t2;
