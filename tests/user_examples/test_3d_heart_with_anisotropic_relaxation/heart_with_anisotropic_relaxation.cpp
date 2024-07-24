@@ -634,16 +634,14 @@ int main(int ac, char *av[])
         /** topology */
         InnerRelation herat_model_inner(herat_model);
         InnerRelation boundary_model_inner(boundary);
-        ComplexRelation heart_boundary_relaxation_complex(boundary, {&herat_model});
-
+       
         /** Random reset the relax solid particle position. */
         SimpleDynamics<RandomizeParticlePosition> random_particles(herat_model);
         SimpleDynamics<RandomizeParticlePosition> random_particles_boundary(boundary);
        /** A  Physics relaxation step. */
         relax_dynamics::RelaxationStepInner relaxation_step_inner(herat_model_inner);
-        relax_dynamics::RelaxationStepInner relaxation_step_complex(boundary_model_inner);
-       // relax_dynamics::RelaxationStepComplex relaxation_step_complex(heart_boundary_relaxation_complex, "OuterBoundary");
-      /** Time step for diffusion. */
+        relax_dynamics::RelaxationStepInner relaxation_step_inner_boundary(boundary_model_inner);
+         /** Time step for diffusion. */
         GetDiffusionTimeStepSize<FiberDirectionDiffusionParticles> get_time_step_size(herat_model);
         /** Diffusion process for diffusion body. */
         DiffusionRelaxation diffusion_relaxation(herat_model_inner);
@@ -661,7 +659,7 @@ int main(int ac, char *av[])
         random_particles.exec(0.01);
         random_particles_boundary.exec(0.01);
         relaxation_step_inner.SurfaceBounding().exec();
-        relaxation_step_complex.SurfaceBounding().exec();
+        relaxation_step_inner_boundary.SurfaceBounding().exec();
         write_herat_model_state_to_vtp.writeToFile(0.0);
         write_boundary_model_state_to_vtp.writeToFile(0.0);
         //----------------------------------------------------------------------
@@ -673,7 +671,7 @@ int main(int ac, char *av[])
         while (ite < relax_step)
         { 
             relaxation_step_inner.exec();
-            relaxation_step_complex.exec();
+            relaxation_step_inner_boundary.exec();
             ite++;
             if (ite % 100 == 0)
             {

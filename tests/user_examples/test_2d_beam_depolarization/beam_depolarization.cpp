@@ -9,26 +9,29 @@ using namespace SPH;   // Namespace cite here.
 //----------------------------------------------------------------------
 //	Basic geometry parameters and numerical setup.
 //----------------------------------------------------------------------
-Real L = 20.0;
-Real H = 1.0;
-Real resolution_ref = H / 10.0;
+Real L = 2.5;
+Real H = 2.5;
+Real resolution_ref = H / 40.0;
 BoundingBox system_domain_bounds(Vec2d(0.0, 0.0), Vec2d(L, H));
 // observer location
 StdVec<Vecd> observation_location = {Vecd(10.0, 0.5)};
 //----------------------------------------------------------------------
 //	Basic parameters for material properties.
 //----------------------------------------------------------------------
-Real diffusion_coeff = 0.1;
+Real diffusion_coeff = 1.0e-4;
 Real bias_coeff = 0.0;
 Vec2d fiber_direction(1.0, 0.0);
 Real c_m = 1.0;
-Real k = 8.0;
-Real a = 0.15;
-Real b = 0.15;
-Real mu_1 = 0.2;
-Real mu_2 = 0.3;
-Real epsilon = 0.002;
+Real beta = 0.5;
+Real gama = 1.0;
+Real sigma = 0.0;
+Real a = 0.1;
+ 
+Real epsilon = 0.01;
 Real k_a = 0.0;
+
+  
+
 //----------------------------------------------------------------------
 //	Geometric shapes used in the system.
 //----------------------------------------------------------------------
@@ -54,20 +57,37 @@ class DepolarizationInitialCondition
 {
   protected:
     size_t voltage_;
+    size_t gate_variable;
 
   public:
     explicit DepolarizationInitialCondition(SPHBody &sph_body)
         : electro_physiology::ElectroPhysiologyInitialCondition(sph_body)
     {
         voltage_ = particles_->diffusion_reaction_material_.AllSpeciesIndexMap()["Voltage"];
+        gate_variable = particles_->diffusion_reaction_material_.AllSpeciesIndexMap()["GateVariable"];
     };
 
     void update(size_t index_i, Real dt)
     {
-        if (pos_[index_i][0] < 3.0 * resolution_ref)   
+        if (0 < pos_[index_i][0] && pos_[index_i][0] < 1.25 &&   0 < pos_[index_i][1] &&  pos_[index_i][1] < 1.25  )   
         {
            all_species_[voltage_][index_i] = 1.0;
         }
+     
+
+      if (0 < pos_[index_i][0]  &&  pos_[index_i][0]  < 1.25  &&  1.25 < pos_[index_i][1] && pos_[index_i][1] < 2.5 )   
+        {
+           all_species_[gate_variable][index_i] = 0.1;
+        }
+
+       
+
+      if (1.25 < pos_[index_i][0] &&   pos_[index_i][0] < 2.5 &&  0 < pos_[index_i][1] &&  pos_[index_i][1]< 2.5 )   
+        {
+           all_species_[gate_variable][index_i] = 0.1;
+        }
+ 
+
     };
 };
 //----------------------------------------------------------------------
@@ -85,7 +105,11 @@ int main(int ac, char *av[])
     //	Creating body, materials and particles.
     //----------------------------------------------------------------------
     SolidBody muscle_body(sph_system, makeShared<MuscleBlock>("MuscleBlock"));
-    SharedPtr<AlievPanfilowModel> muscle_reaction_model_ptr = makeShared<AlievPanfilowModel>(k_a, c_m, k, a, b, mu_1, mu_2, epsilon);
+
+
+
+
+    SharedPtr<FitzHughNagumoModdel> muscle_reaction_model_ptr = makeShared<FitzHughNagumoModdel>(k_a, beta, gama, sigma, epsilon, a, c_m);
     muscle_body.defineParticlesAndMaterial<ElectroPhysiologyParticles, MonoFieldElectroPhysiology>(
         muscle_reaction_model_ptr, TypeIdentity<DirectionalDiffusion>(), diffusion_coeff, bias_coeff, fiber_direction);
     muscle_body.generateParticles<ParticleGeneratorLattice>();
@@ -133,11 +157,12 @@ int main(int ac, char *av[])
     //----------------------------------------------------------------------
     write_states.writeToFile(0);
     write_recorded_voltage.writeToFile(0);
+ 
     //----------------------------------------------------------------------
     //	Setup for time-stepping control
     //----------------------------------------------------------------------
     int ite = 0;
-    Real T0 = 16.0;
+    Real T0 = 1000.0;
     Real end_time = T0;
     Real output_interval = 0.5;       /**< Time period for output */
     Real Dt = 0.01 * output_interval; /**< Time period for data observing */
@@ -160,11 +185,7 @@ int main(int ac, char *av[])
             while (relaxation_time < Dt)
             {
 
-            if  (GlobalStaticVariables::physical_time_<0.5)
-               {
-                initialization.exec();
-               } 
-
+           
                 if (ite % 1000 == 0)
                 {
                     std::cout << "N=" << ite << " Time: "
@@ -195,8 +216,7 @@ int main(int ac, char *av[])
     TimeInterval tt;
     tt = t4 - t1 - interval;
     std::cout << "Total wall time for computation: " << tt.seconds() << " seconds." << std::endl;
-
-    write_recorded_voltage.testResult();
+ 
 
     return 0;
 }

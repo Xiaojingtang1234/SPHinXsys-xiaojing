@@ -92,6 +92,32 @@ class AlievPanfilowModel : public ElectroPhysiologyReaction
     virtual ~AlievPanfilowModel(){};
 };
 
+
+
+
+
+class FitzHughNagumoModdel: public ElectroPhysiologyReaction
+{
+  protected:
+    /** Parameters for two variable cell model. */
+    Real  k_a,beta_, gama_, sigma_, epsilon_, a_,c_m_;
+
+    virtual Real getProductionRateIonicCurrent(LocalSpecies &species) override;
+    virtual Real getLossRateIonicCurrent(LocalSpecies &species) override;
+    virtual Real getProductionRateGateVariable(LocalSpecies &species) override;
+    virtual Real getLossRateGateVariable(LocalSpecies &species) override;
+
+  public:
+    explicit FitzHughNagumoModdel(Real k_a, Real beta, Real gama, Real sigma, Real epsilon, Real a, Real c_m)
+        : ElectroPhysiologyReaction(k_a), beta_(beta), gama_(gama), sigma_(sigma), epsilon_(epsilon),a_(a), c_m_(c_m)
+    {
+        reaction_model_ = "FitzHughNagumoModdel";
+    };
+    virtual ~FitzHughNagumoModdel(){};
+};
+
+
+
 // type trait for pass type template constructor
 // This is a C++17 replacement to the C++20 https://en.cppreference.com/w/cpp/types/type_identity.
 template <typename T>
