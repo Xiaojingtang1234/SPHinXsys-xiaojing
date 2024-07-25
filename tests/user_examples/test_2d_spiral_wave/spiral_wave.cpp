@@ -20,14 +20,15 @@ StdVec<Vecd> observation_location = {Vecd(10.0, 0.5)};
 //----------------------------------------------------------------------
 Real diffusion_coeff = 1.0e-4;
 Real bias_coeff = 0.0;
-Vec2d fiber_direction(1.0, 0.0);
+Vec2d fiber_direction(0.0, 0.0);
 Real c_m = 1.0;
+
 Real beta = 0.5;
 Real gama = 1.0;
 Real sigma = 0.0;
 Real a = 0.1;
- 
 Real epsilon = 0.01;
+
 Real k_a = 0.0;
 
   
@@ -69,27 +70,69 @@ class DepolarizationInitialCondition
 
     void update(size_t index_i, Real dt)
     {
-        if (0 < pos_[index_i][0] && pos_[index_i][0] < 1.25 &&   0 < pos_[index_i][1] &&  pos_[index_i][1] < 1.25  )   
+        if (0 < pos_[index_i][0] && pos_[index_i][0] < 1.25 && 0 < pos_[index_i][1] &&  pos_[index_i][1] < 1.25  )   
         {
            all_species_[voltage_][index_i] = 1.0;
         }
      
 
-      if (0 < pos_[index_i][0]  &&  pos_[index_i][0]  < 1.25  &&  1.25 < pos_[index_i][1] && pos_[index_i][1] < 2.5 )   
+      if (0 < pos_[index_i][0]  &&  pos_[index_i][0]  < 2.5  && 1.25 < pos_[index_i][1] && pos_[index_i][1] < 2.5)   
         {
            all_species_[gate_variable][index_i] = 0.1;
         }
 
        
 
-      if (1.25 < pos_[index_i][0] &&   pos_[index_i][0] < 2.5 &&  0 < pos_[index_i][1] &&  pos_[index_i][1]< 2.5 )   
-        {
-           all_species_[gate_variable][index_i] = 0.1;
-        }
- 
 
     };
 };
+
+
+class DepolarizationBoundaryCondition
+    : public electro_physiology::ElectroPhysiologyInitialCondition
+{
+  protected:
+    size_t voltage_;
+    size_t gate_variable;
+
+  public:
+    explicit DepolarizationBoundaryCondition(SPHBody &sph_body)
+        : electro_physiology::ElectroPhysiologyInitialCondition(sph_body)
+    {
+        voltage_ = particles_->diffusion_reaction_material_.AllSpeciesIndexMap()["Voltage"];
+        gate_variable = particles_->diffusion_reaction_material_.AllSpeciesIndexMap()["GateVariable"];
+    };
+
+    void update(size_t index_i, Real dt)
+    {
+        if (0 < pos_[index_i][0] && pos_[index_i][0] < 2.5 && 0 < pos_[index_i][1] &&  pos_[index_i][1] < 2.0 * resolution_ref  )   
+        {
+           all_species_[voltage_][index_i] = 0.0;
+        }
+     
+       
+        if (0 < pos_[index_i][0] && pos_[index_i][0] < 2.5 && ( H- 2.0 * resolution_ref)  < pos_[index_i][1] &&  pos_[index_i][1] < H  )   
+        {
+           all_species_[voltage_][index_i] = 0.0;
+        }
+     
+        if (0 < pos_[index_i][1] && pos_[index_i][1] < 2.5 && 0 < pos_[index_i][0] &&  pos_[index_i][0] < 2.0 * resolution_ref  )   
+        {
+           all_species_[voltage_][index_i] = 0.0;
+        }
+     
+       
+        if (0 < pos_[index_i][1] && pos_[index_i][1] < 2.5 && ( H- 2.0 * resolution_ref)  < pos_[index_i][0] &&  pos_[index_i][0] < H  )   
+        {
+           all_species_[voltage_][index_i] = 0.0;
+        }
+     
+
+     
+    };
+};
+
+
 //----------------------------------------------------------------------
 //	Main program starts here.
 //----------------------------------------------------------------------
@@ -106,9 +149,7 @@ int main(int ac, char *av[])
     //----------------------------------------------------------------------
     SolidBody muscle_body(sph_system, makeShared<MuscleBlock>("MuscleBlock"));
 
-
-
-
+ 
     SharedPtr<FitzHughNagumoModdel> muscle_reaction_model_ptr = makeShared<FitzHughNagumoModdel>(k_a, beta, gama, sigma, epsilon, a, c_m);
     muscle_body.defineParticlesAndMaterial<ElectroPhysiologyParticles, MonoFieldElectroPhysiology>(
         muscle_reaction_model_ptr, TypeIdentity<DirectionalDiffusion>(), diffusion_coeff, bias_coeff, fiber_direction);
@@ -131,6 +172,9 @@ int main(int ac, char *av[])
     //	Note that there may be data dependence on the constructors of these methods.
     //----------------------------------------------------------------------
     SimpleDynamics<DepolarizationInitialCondition> initialization(muscle_body);
+    SimpleDynamics<DepolarizationBoundaryCondition> boundary(muscle_body);
+
+    
     InteractionWithUpdate<KernelCorrectionMatrixInner> correct_configuration(muscle_body_inner_relation);
     electro_physiology::GetElectroPhysiologyTimeStepSize get_time_step_size(muscle_body);
     // Diffusion process for diffusion body.
@@ -151,6 +195,7 @@ int main(int ac, char *av[])
     sph_system.initializeSystemCellLinkedLists();
     sph_system.initializeSystemConfigurations();
     initialization.exec();
+    boundary.exec();
     correct_configuration.exec();
     //----------------------------------------------------------------------
     //	Initial states output.
@@ -193,12 +238,14 @@ int main(int ac, char *av[])
                               << dt << "\n";
                 }
                 /**Strang splitting method. */
+                boundary.exec();
+                
                 reaction_relaxation_forward.exec(0.5 * dt);
                 diffusion_relaxation.exec(dt);
                 reaction_relaxation_backward.exec(0.5 * dt);
 
                 ite++;
-                dt = get_time_step_size.exec();
+                dt = 0.01*get_time_step_size.exec();
                 relaxation_time += dt;
                 integration_time += dt;
                 GlobalStaticVariables::physical_time_ += dt;

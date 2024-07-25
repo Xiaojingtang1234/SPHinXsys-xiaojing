@@ -24,10 +24,10 @@ Vec2d fiber_direction(1.0, 0.0);
 Real c_m = 1.0;
 Real k = 8.0;
 Real a = 0.15;
-Real b = 0.0;
+Real b = 0.15;
 Real mu_1 = 0.2;
 Real mu_2 = 0.3;
-Real epsilon = 0.04;
+Real epsilon = 0.002;
 Real k_a = 0.0;
 //----------------------------------------------------------------------
 //	Geometric shapes used in the system.
