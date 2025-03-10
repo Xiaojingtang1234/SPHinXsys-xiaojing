@@ -27,7 +27,7 @@ Real a = 0.15;
 Real b = 0.15;
 Real mu_1 = 0.2;
 Real mu_2 = 0.3;
-Real epsilon = 0.002;
+Real epsilon = 0.034;
 Real k_a = 0.0;
 //----------------------------------------------------------------------
 //	Geometric shapes used in the system.

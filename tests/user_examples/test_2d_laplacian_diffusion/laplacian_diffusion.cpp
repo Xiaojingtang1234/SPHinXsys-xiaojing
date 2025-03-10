@@ -1,6 +1,6 @@
 /**
  * @file 	Laplacian_diffusion.cpp
- * @brief 	This is a   test to validate our anisotropic laplacian algorithm.
+ * @brief 	This is a test to validate our anisotropic laplacian algorithm.
  * @author Xiaojing Tang and Xiangyu Hu
  */
 #include "sphinxsys.h" //SPHinXsys Library
@@ -8,12 +8,10 @@ using namespace SPH;   // Namespace cite here
 //----------------------------------------------------------------------
 //	Basic geometry parameters and numerical setup.
 //----------------------------------------------------------------------
-Real L = 2.0;
-Real H = 0.4;
+Real L = 1.0;
+Real H = 0.1;
  
-
-
-int y_num = 20;
+int y_num = 4;
 Real ratio_ = 4.0;
 Real resolution_ref = H / y_num;
 Real resolution_ref_large = ratio_ * resolution_ref;
@@ -334,7 +332,7 @@ class LaplacianBodyRelaxation : public LocalDynamics, public LaplacianSolidDataC
 		
         diffusion_coeff_ = particles_->laplacian_solid_.DiffusivityCoefficient();
 
-	     StdLargeVec<Real>  contact_phi_;  
+	     /*StdLargeVec<Real>  contact_phi_;  
 		contact_phi_.resize(this->contact_particles_.size());
 
 		 
@@ -343,10 +341,8 @@ class LaplacianBodyRelaxation : public LocalDynamics, public LaplacianSolidDataC
 			 
 			contact_phi_[k].push_back(&all_contact_species_k[contact_species_index_k_m]);
 		}
-		 
-
-
-
+		 */ 
+ 
     };
     virtual ~LaplacianBodyRelaxation(){};
 
@@ -428,9 +424,10 @@ class LaplacianBodyRelaxation : public LocalDynamics, public LaplacianSolidDataC
 		
                 //TO DO
                 Vec3d C_ = Vec3d::Zero();
-                C_[0] = (r_ij[0] * r_ij[0]);
-                C_[1] = (r_ij[1] * r_ij[1]);
-                C_[2] = (r_ij[0] * r_ij[1]);
+                  C_[0] = (r_ij[0] * r_ij[0]- r_ij.dot(A1_[index_i]));
+                C_[1] = (r_ij[1] * r_ij[1]- r_ij.dot(A2_[index_i]));
+                C_[2] = (r_ij[0] * r_ij[1]- r_ij.dot(A3_[index_i]));
+          
 
                 SC_rate_contact += S_ * H_rate_contact * C_.transpose();
                 G_rate_contact += S_ * H_rate_contact * FF_;
@@ -551,15 +548,13 @@ class DiffusionInitialCondition : public LocalDynamics, public LaplacianSolidDat
   protected:
     void update(size_t index_i, Real dt = 0.0)
     {
-        if (pos_[index_i][0] >= 0.3 * L && pos_[index_i][0] <= 0.7 * L)
+         if (pos_[index_i][0] >= 0.4* L && pos_[index_i][0] <= 0.6 * L)
         {
-           // if (pos_[index_i][1] >= 0.4*H && pos_[index_i][1] <= 0.6 * H)
-           // {
-             //   phi_[index_i] = 1.0;
-          //  }
-          
+            phi_[index_i] = 1.0;     
         }
-         phi_[index_i] = sin(pos_[index_i][0]);       
+
+       // phi_[index_i] = pos_[index_i][0] *pos_[index_i][0] + pos_[index_i][1] * pos_[index_i][1];
+      
     };
 };
 
@@ -710,6 +705,7 @@ int main(int ac, char *av[])
     //	Define the methods for I/O operations and observations of the simulation.
     //----------------------------------------------------------------------
     BodyStatesRecordingToVtp write_states(io_environment, sph_system.real_bodies_);
+    //BodyStatesRecordingToVtp write_states_vtp(io_environment, sph_system.real_bodies_);
     RegressionTestEnsembleAverage<ObservedQuantityRecording<Real>>
         write_solid_temperature("Phi", io_environment, temperature_observer_contact);
     //----------------------------------------------------------------------
@@ -717,21 +713,20 @@ int main(int ac, char *av[])
     //	and case specified initial condition if necessary.
     //----------------------------------------------------------------------
     sph_system.initializeSystemCellLinkedLists();
-	periodic_condition_y.update_cell_linked_list_.exec();
-	periodic_condition_x.update_cell_linked_list_.exec();
+	//periodic_condition_y.update_cell_linked_list_.exec();
+	//periodic_condition_x.update_cell_linked_list_.exec();
     sph_system.initializeSystemConfigurations();
     correct_configuration.exec();
     correct_second_configuration.exec();
     setup_diffusion_initial_condition.exec();
-   // update_diffusion_condition.exec();
     //----------------------------------------------------------------------
     //	Setup for time-stepping control
     //----------------------------------------------------------------------
     int ite = 1;
-    Real T0 = 10.0;
+    Real T0 = 0.4;
     Real end_time = T0;
-    Real Output_Time = 0.1 * end_time;
-    Real Observe_time = 0.1 * Output_Time;
+    Real Output_Time = 0.01 * end_time;
+    Real Observe_time = 0.01 * Output_Time;
     Real dt = 0.0;
     //----------------------------------------------------------------------
     //	Statistics for CPU time
@@ -742,6 +737,7 @@ int main(int ac, char *av[])
     //	First output before the main loop.
     //----------------------------------------------------------------------
     write_states.writeToFile();
+   // write_states_vtp.writeToFile();
     write_solid_temperature.writeToFile();
     std::cout << transform_tensor << std::endl;
     //----------------------------------------------------------------------
@@ -755,15 +751,14 @@ int main(int ac, char *av[])
             Real relaxation_time = 0.0;
             while (relaxation_time < Observe_time)
             {
-                dt = 0.1*scaling_factor * get_time_step_size.exec();
+                dt = 0.1 * scaling_factor * get_time_step_size.exec();
                 diffusion_relaxation.exec(dt);
-          //    update_diffusion_condition.exec();
 
                 if (ite < 3.0)
                 {
                     write_states.writeToFile(ite);
                     write_solid_temperature.writeToFile(ite);
-                }
+                } 
                 if (ite % 1000 == 0)
                 {
                     std::cout << "N=" << ite << " Time: "
@@ -777,12 +772,13 @@ int main(int ac, char *av[])
                 integration_time += dt;
                 GlobalStaticVariables::physical_time_ += dt;
             } 
-			write_solid_temperature.writeToFile(ite);
+			
         }
 
         TickCount t2 = TickCount::now();
         write_states.writeToFile();
-       
+       write_solid_temperature.writeToFile(ite);
+      // write_states_vtp.writeToFile(ite);
         TickCount t3 = TickCount::now();
         interval += t3 - t2;
     }

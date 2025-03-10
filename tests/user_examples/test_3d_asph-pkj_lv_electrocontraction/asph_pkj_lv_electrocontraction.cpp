@@ -192,29 +192,30 @@ int main(int ac, char *av[])
     ContactRelation voltage_observer_contact(voltage_observer, {&physiology_heart});
     ContactRelation myocardium_observer_contact(myocardium_observer, {&mechanics_heart});
  
-   ComplexRelation heart_boundary_complex(physiology_heart, {&boundary_condition});
+    ComplexRelation heart_boundary_complex(physiology_heart, {&boundary_condition});
 
      // Corrected configuration complex
  	 Dynamics1Level<NonisotropicKernelCorrectionMatrixComplex> correct_configuration_excitation(heart_boundary_complex);
-    Dynamics1Level<NonisotropicKernelCorrectionMatrixComplexAC> correct_second_configuration(heart_boundary_complex);
+     Dynamics1Level<NonisotropicKernelCorrectionMatrixComplexAC> correct_second_configuration(heart_boundary_complex);
 
+    /** Diffusion process for diffusion body. */ 
+    Dynamics1Level<DiffusionRelaxationComplex>  myocardium_diffusion_relaxation(heart_boundary_complex); 
 
     /** Corrected configuration. */
-    //InteractionWithUpdate<KernelCorrectionMatrixInner> correct_configuration_excitation(physiology_heart_inner);
-    /** Time step size calculation. */
-    electro_physiology::GetElectroPhysiologyTimeStepSize get_myocardium_physiology_time_step(physiology_heart);
-    /** Diffusion process for diffusion body. */ 
-
-    Dynamics1Level<DiffusionRelaxationComplex>  myocardium_diffusion_relaxation(heart_boundary_complex); 
-    //electro_physiology::ElectroPhysiologyDiffusionInnerRK2 myocardium_diffusion_relaxation(physiology_heart_inner);
+    // InteractionWithUpdate<KernelCorrectionMatrixInner> correct_configuration_excitation(physiology_heart_inner);
+    // electro_physiology::ElectroPhysiologyDiffusionInnerRK2 myocardium_diffusion_relaxation(physiology_heart_inner);
     
+   
+  
+     /** Time step size calculation. */
+    electro_physiology::GetElectroPhysiologyTimeStepSize get_myocardium_physiology_time_step(physiology_heart);
     /** Solvers for ODE system */
     electro_physiology::ElectroPhysiologyReactionRelaxationForward myocardium_reaction_relaxation_forward(physiology_heart);
     electro_physiology::ElectroPhysiologyReactionRelaxationBackward myocardium_reaction_relaxation_backward(physiology_heart);
  
    
     /**IO for observer.*/
-    BodyStatesRecordingToVtp write_states(io_environment, sph_system.real_bodies_);
+    BodyStatesRecordingToPlt write_states(io_environment, sph_system.real_bodies_);
     ObservedQuantityRecording<Real> write_voltage("Voltage", io_environment, voltage_observer_contact);
     ObservedQuantityRecording<Vecd> write_displacement("Position", io_environment, myocardium_observer_contact);
     /**Apply the Iron stimulus.*/
@@ -246,7 +247,9 @@ int main(int ac, char *av[])
     sph_system.initializeSystemCellLinkedLists();
     sph_system.initializeSystemConfigurations();
     correct_configuration_excitation.exec();
-     correct_second_configuration.exec(); 
+    
+    correct_second_configuration.exec(); 
+
     correct_configuration_contraction.exec();
     correct_kernel_weights_for_interpolation.exec();
     /**Output global basic parameters. */

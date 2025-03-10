@@ -20,7 +20,7 @@ Real BH = 6.0 * resolution_ref;
 //----------------------------------------------------------------------
 //	Basic parameters for material properties.
 //----------------------------------------------------------------------
-Real diffusion_coeff = 0.5;
+Real diffusion_coeff = 1.0;
 Real rho0 = 1.0;
 Real youngs_modulus = 1.0;
 Real poisson_ratio = 1.0;
@@ -29,10 +29,9 @@ Real poisson_ratio = 1.0;
 //----------------------------------------------------------------------
  
 Mat2d decomposed_transform_tensor{ 
-     {0.5, 0.0},  
-     {0.0, 1.0},
-}; 
-Mat2d inverse_decomposed_transform_tensor =  decomposed_transform_tensor.inverse();
+     {1.0, 0.0},  
+     {0.0,0.2},
+};  
 
 std::vector<Vec2d> diffusion_shape{Vec2d(0.0, 0.0), Vec2d(0.0, H), Vec2d(L, H), Vec2d(L, 0.0), Vec2d(0.0, 0.0)};
 
@@ -421,17 +420,8 @@ class DiffusionInitialCondition : public LocalDynamics, public LaplacianSolidDat
   protected:
     void update(size_t index_i, Real dt = 0.0)
     { 
-        
-         if (pos_[index_i][0] >= (0.5 * L- 0.1*L ) && pos_[index_i][0] <=  (0.5 * L + 0.1*L ))
-        {
-            if (pos_[index_i][1] >=  (0.5 * H - 0.1*H ) && pos_[index_i][1] <= (0.5* H + 0.1*H ))
-            {
-                phi_[index_i] = 1.0;
-            }
-          
-        } 
-       
-         phi_[index_i] = 3.0 *pos_[index_i][0] *pos_[index_i][0];
+      
+         phi_[index_i] =  pos_[index_i][0] * pos_[index_i][0] + pos_[index_i][1] *pos_[index_i][1];
             
     };
 };
@@ -474,7 +464,7 @@ int main(int ac, char *av[])
    /** Tag for run particle relaxation for the initial body fitted distribution. */
     sph_system.setRunParticleRelaxation(false);
     /** Tag for computation start with relaxed body fitted particles distribution. */
-    sph_system.setReloadParticles(false);
+    sph_system.setReloadParticles(true);
 
     sph_system.handleCommandlineOptions(ac, av);
     IOEnvironment io_environment(sph_system);
@@ -664,6 +654,12 @@ int main(int ac, char *av[])
                               << GlobalStaticVariables::physical_time_ << "	dt: "
                               << dt << "\n";
                 } 
+
+                if(ite<2.0)
+                {
+
+                       write_states.writeToFile(ite);
+                }
 
                 ite++;
 
