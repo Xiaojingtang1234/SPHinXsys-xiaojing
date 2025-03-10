@@ -158,7 +158,7 @@ void NeighborBuilderContact::operator()(Neighborhood &neighborhood,
     size_t index_j = std::get<0>(list_data_j);
     Vecd displacement = pos_i - std::get<1>(list_data_j);
     Real distance = displacement.norm();
-    if (kernel_->checkIfWithinCutOffRadius(displacement) && index_i != index_j)
+    if (kernel_->checkIfWithinCutOffRadius(displacement) )
     {
         neighborhood.current_size_ >= neighborhood.allocated_size_
             ? createNeighbor(neighborhood, distance, displacement, index_j, std::get<2>(list_data_j))
