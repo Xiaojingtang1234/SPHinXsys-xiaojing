@@ -57,11 +57,11 @@ Real rho0_s = 1.06e-3;
 /** Active stress factor */
 Real k_a = 150 * stress_scale;
 // the parameter in chi code
-Real a0[4] = {Real(496.0 * stress_scale), Real(15196.0 * stress_scale), Real(3283.0 * stress_scale), Real(662.0 * stress_scale)};
-Real b0[4] = {Real(7.209), Real(20.417), Real(11.176), Real(9.466)};
-// the parameter in chi paper
-//Real a0[4] = {Real(59.0) * stress_scale, Real(18472) * stress_scale, Real(2841.0) * stress_scale, Real(216) * stress_scale};
-//Real b0[4] = {Real(8.023), Real(16.026), Real(11.12), Real(11.436)}; 
+//Real a0[4] = {Real(496.0 * stress_scale), Real(15196.0 * stress_scale), Real(3283.0 * stress_scale), Real(662.0 * stress_scale)};
+//Real b0[4] = {Real(7.209), Real(20.417), Real(11.176), Real(9.466)};
+// the parameter in chi PAPER
+Real a0[4] = {Real(59.0) * stress_scale, Real(18472) * stress_scale, Real(2841.0) * stress_scale, Real(216) * stress_scale};
+Real b0[4] = {Real(8.023), Real(16.026), Real(11.12), Real(11.436)}; 
 
 /** reference stress to achieve weakly compressible condition */
 Real poisson = 0.4995;
@@ -69,7 +69,7 @@ Real bulk_modulus = 2.0 * a0[0] * (1.0 + poisson) / (3.0 * (1.0 - 2.0 * poisson)
 /** Electrophysiology parameters. */
  
 Real diffusion_coeff = 0.8;
-Real bias_coeff = 1.2; //1.2
+Real bias_coeff = 0.1; //1.2
 /** Electrophysiology parameters. */
 std::array<std::string, 1> species_name_list{"Phi"};
 Real c_m = 1.0;

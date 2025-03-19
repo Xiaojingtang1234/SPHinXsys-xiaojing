@@ -10,13 +10,13 @@
  *			Pressure pa = g * (mm)^(-1) * (ms)^(-2)
  *			diffusion d = (mm)^(2) * (ms)^(-2)
  */
+#include "io_vtk.h"
 #include "sphinxsys.h" // SPHinXsys Library.
 using namespace SPH;   // Namespace cite here.
 /** Geometry parameter. */
 /** Set the file path to the stl file. */
 std::string full_path_to_stl_file = "./input/heart-new.stl";
-Real length_scale = 1.0;
-Real time_scale = 1.0 / 12.9;
+Real length_scale = 1.0; 
 Real stress_scale = 1.0e-6;
 /** Parameters and physical properties. */
 Vec3d domain_lower_bound(-65.0 * length_scale, -85.0 * length_scale, -45.0 * length_scale);
@@ -34,10 +34,12 @@ BoundingBox system_domain_bounds(domain_lower_bound, domain_upper_bound);
 Real rho0_s = 1.06e-3;
 /** Active stress factor */
 Real k_a = 100 * stress_scale;
+// the parameter in code
 Real a0[4] = {Real(496.0) * stress_scale, Real(15196.0) * stress_scale, Real(3283.0) * stress_scale, Real(662.0) * stress_scale};
 Real b0[4] = {Real(7.209), Real(20.417), Real(11.176), Real(9.466)};
-//Real a0[4] = {Real(496.0) * stress_scale, Real(15196.0) * stress_scale, Real(3283.0) * stress_scale, Real(662.0) * stress_scale};
-//Real b0[4] = {Real(8.023), Real(16.026), Real(11.12), Real(11.436)};
+// the parameter in chi paper
+//Real a0[4] = {Real(59.0) * stress_scale, Real(18472) * stress_scale, Real(2841.0) * stress_scale, Real(216) * stress_scale};
+//Real b0[4] = {Real(8.023), Real(16.026), Real(11.12), Real(11.436)}; 
 /** reference stress to achieve weakly compressible condition */
 Real poisson = 0.4995;
 Real bulk_modulus = 2.0 * a0[0] * (1.0 + poisson) / (3.0 * (1.0 - 2.0 * poisson));
@@ -52,7 +54,7 @@ Real a = 0.01;
 Real b = 0.15;
 Real mu_1 = 0.2;
 Real mu_2 = 0.3;
-Real epsilon = 0.002;
+Real epsilon = 0.04; //   the parameter in  2024 paper
 /** Fibers and sheet. */
 Vec3d fiber_direction(1.0, 0.0, 0.0);
 Vec3d sheet_direction(0.0, 1.0, 0.0);
@@ -234,7 +236,7 @@ class ApplyStimulusCurrentSI
             {
                 if (-3.0 * length_scale <= pos_[index_i][2] && pos_[index_i][2] <= 3.0 * length_scale)
                 {
-                    all_species_[voltage_][index_i] = 0.92;
+                    all_species_[voltage_][index_i] = 1.52;
                 }
             }
         }
@@ -773,6 +775,7 @@ int main(int ac, char *av[])
 
     physiology_heart.addBodyStateForRecording<Mat3d>("LocalTransformedDiffusivity");
     physiology_heart.addBodyStateForRecording<Real>("VoltageChangeRate");
+    physiology_heart.addBodyStateForRecording<Matd>("DecomposedTransformTensor");
 
 
     // Solvers for ODE system.
@@ -818,6 +821,7 @@ int main(int ac, char *av[])
     correct_configuration_contraction.exec();
     correct_kernel_weights_for_interpolation.exec();
     /** Output initial states and observations */
+    apply_stimulus_s1.exec(0);
     write_states.writeToFile(0);
     write_voltage.writeToFile(0);
     write_displacement.writeToFile(0);
@@ -828,7 +832,7 @@ int main(int ac, char *av[])
     int ite = 0;
     int reaction_step = 2;
     Real end_time = 100;
-    Real Ouput_T = end_time / 50.0;
+    Real Ouput_T = end_time / 100.0;
     Real Observer_time = 0.01 * Ouput_T;
     Real dt = 0.0;   /**< Default acoustic time step sizes for physiology. */
     Real dt_s = 0.0; /**< Default acoustic time step sizes for mechanics. */

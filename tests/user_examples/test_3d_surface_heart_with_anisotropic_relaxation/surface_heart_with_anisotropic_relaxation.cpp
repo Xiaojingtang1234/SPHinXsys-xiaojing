@@ -299,6 +299,7 @@ class NonisotropicKernelCorrectionMatrix : public LocalDynamics, public Laplacia
         compensation_particle_rib_(particles_->compensation_particle_rib_) 
         { 
           particles_->registerVariable(distance, "Distance_", [&](size_t i) -> Real { return Real(0.0); });		 
+          particles_->registerVariable(dimension_check_, "dimension_check_", [&](size_t i) -> Real { return Real(0.0); });		 
         };
 
     virtual ~NonisotropicKernelCorrectionMatrix(){};
@@ -311,27 +312,38 @@ class NonisotropicKernelCorrectionMatrix : public LocalDynamics, public Laplacia
       StdLargeVec<Vec3d> &compensation_particle_rib_;
  
 
-      StdLargeVec<Real> distance;
- 
+      StdLargeVec<Real> distance; 
+      StdLargeVec<Real> dimension_check_; 
+
 	  void initialization(size_t index_i, Real dt = 0.0)
 	  {
-        distance[index_i] = sph_body_.body_shape_->findSignedDistance(pos_[index_i]);//this is right
+         distance[index_i] = sph_body_.body_shape_->findSignedDistance(pos_[index_i]);//this is right
          
-         if(fabs(distance[index_i])< 5.0 * dp_0)
-           {   
-               const Neighborhood &inner_neighborhood = inner_configuration_[index_i];
-               Vec3d compensation = Eps * Vec3d::Identity();
+         if(fabs(distance[index_i])< 1.0 * dp_0)
+           {           
+                const Neighborhood &inner_neighborhood = inner_configuration_[index_i];
+                Vec3d compensation = Vec3d::Zero();
+                Real r_ij_wij  = 0;
                 for (size_t n = 0; n != inner_neighborhood.current_size_; ++n)
                 {
                     Vec3d gradW_ij = inner_neighborhood.dW_ijV_j_[n] * inner_neighborhood.e_ij_[n];  
                     compensation += gradW_ij;
+                // r_ij = r_i - r_j
+                    Vec3d r_ij = inner_neighborhood.r_ij_vector_[n];
+			              r_ij_wij  -= r_ij.dot(gradW_ij); //this means over 0
+                    
                 }  
-                 compensation_particle_dw_[index_i] = -compensation; //THIS IS RIGHT  
-                Vec3d norm_ = compensation_particle_dw_[index_i] / (compensation_particle_dw_[index_i].norm() + TinyReal);
-                compensation_particle_rib_[index_i] =  norm_ * distance[index_i];    
-    	  }
+                
+                compensation_particle_dw_[index_i] = -compensation; //THIS IS RIGHT 
+                
+                //this is over 0 
+                Real r_ib_coeff = (3.0 - r_ij_wij ) / compensation_particle_dw_[index_i].dot(compensation_particle_dw_[index_i]);
+             // ithis is also right 
+                compensation_particle_rib_[index_i] = -r_ib_coeff * compensation_particle_dw_[index_i];   
+                
+                dimension_check_[index_i]  = r_ij_wij - compensation_particle_rib_[index_i].dot(compensation_particle_dw_[index_i] );
+           }
 
-		    
 	  };
 
     void interaction(size_t index_i, Real dt = 0.0)
@@ -345,17 +357,31 @@ class NonisotropicKernelCorrectionMatrix : public LocalDynamics, public Laplacia
 			  Vec3d r_ij = inner_neighborhood.r_ij_vector_[n];
 			  local_configuration -= r_ij * gradW_ij.transpose();
 		  }
+      B_[index_i]  =  local_configuration ;
+      
+      distance[index_i] = sph_body_.body_shape_->findSignedDistance(pos_[index_i]);//this is right
+      if(fabs(distance[index_i])< 1.0 * dp_0)
+        { 
 
-          local_configuration -= compensation_particle_rib_[index_i] 
-                                 * compensation_particle_dw_[index_i].transpose(); 
-		  B_[index_i] = local_configuration;
-
+          if(index_i==17240){ 
+            std::cout <<"local_configuration"<< (-compensation_particle_rib_[index_i] 
+                                    * compensation_particle_dw_[index_i].transpose()) <<std::endl;
+          std::cout <<" (Mat3d::Identity() - local_configuration )"<< (Mat3d::Identity() - local_configuration )  <<std::endl;
+          }
+        
+            B_[index_i]  =  (Mat3d::Identity() - local_configuration ) * (-compensation_particle_rib_[index_i] 
+                                    * compensation_particle_dw_[index_i].transpose()).inverse();
+        }   
      }; 
 
 	void update(size_t index_i, Real dt)
 	{
-		Mat3d inverse = B_[index_i].inverse();
-		B_[index_i] = inverse;	
+    distance[index_i] = sph_body_.body_shape_->findSignedDistance(pos_[index_i]);//this is right
+      if(fabs(distance[index_i])> 1.0 * dp_0)
+        { 
+	      	Mat3d inverse = B_[index_i].inverse();
+		        B_[index_i] = inverse;	
+        }
 	}
 };
  
@@ -486,14 +512,14 @@ class NonisotropicKernelCorrectionMatrixComplexAC : public LocalDynamics, public
                 E_rate += (voltage_[index_k] - voltage_[index_i])  * (B_[index_i].transpose() * gradW_ikV_k);  
                                            
             }
-           Vec3d pos_b = pos_[index_i] - compensation_particle_rib_[index_i];  //need to confirm
-           E_rate += ( pos_b[2] * pos_b[2]  - voltage_[index_i]) * (B_[index_i].transpose() * compensation_particle_dw_[index_i]); // HOW TO DEFINE IT???
+           //Vec3d pos_b = pos_[index_i] - compensation_particle_rib_[index_i];  //need to confirm
+       //    E_rate += (pos_b[0] *  pos_b[0] - voltage_[index_i]) * (B_[index_i].transpose() * compensation_particle_dw_[index_i]); // HOW TO DEFINE IT???
         
             E_[index_i] = E_rate;
 
             Vec6d G_rate = Vec6d::Zero();
             Mat6d SC_rate = Mat6d::Zero();
-            Real H_rate = 0.0;
+            Real H_rate = 1.0;
             for (size_t n = 0; n != inner_neighborhood.current_size_; ++n) // this is ik
             {
                 size_t index_j = inner_neighborhood.j_[n];
@@ -501,7 +527,7 @@ class NonisotropicKernelCorrectionMatrixComplexAC : public LocalDynamics, public
 
                 Vec3d gradW_ijV_j = inner_neighborhood.dW_ijV_j_[n] * inner_neighborhood.e_ij_[n];
                 Vec6d S_ = Vec6d(r_ij[0] * r_ij[0], r_ij[1] * r_ij[1], r_ij[2] * r_ij[2], r_ij[0] * r_ij[1], r_ij[1] * r_ij[2], r_ij[2] * r_ij[0]);
-                H_rate = r_ij.dot(B_[index_i].transpose() * gradW_ijV_j) / pow(r_ij.norm(), 4.0);
+                H_rate = r_ij.dot(B_[index_i].transpose() * gradW_ijV_j) / (pow(r_ij.norm(), 4.0) + TinyReal); 
                 
                 Real FF_ = 2.0 * (voltage_[index_j] - voltage_[index_i] - r_ij.dot(E_[index_i]));    
                
@@ -546,11 +572,10 @@ class NonisotropicKernelCorrectionMatrixComplexAC : public LocalDynamics, public
         C_compen[4] = (r_ib[1] * r_ib[2]- r_ib.dot(A5_[index_i]));
         C_compen[5] = (r_ib[2] * r_ib[0]- r_ib.dot(A6_[index_i]));
         
-        //Real FF_compen = 2.0 * (0.0 - r_ib.dot(E_[index_i]));
+         Real FF_compen = 2.0 * (0.0 - r_ib.dot(E_[index_i]));
 
-
-         Vec3d pos_b = pos_[index_i] -  compensation_particle_rib_[index_i]; 
-         Real FF_compen = 2.0 * (pos_b[2] * pos_b[2] - voltage_[index_i] - r_ib.dot(E_[index_i]));
+       //  Vec3d pos_b = pos_[index_i] -  compensation_particle_rib_[index_i]; 
+       //Real FF_compen = 2.0 * (pos_b[0] * pos_b[0] - voltage_[index_i] - r_ib.dot(E_[index_i]));
       
         SC_rate_contact = S_compen * H_rate_compen * C_compen.transpose();   
         G_rate_contact = S_compen * H_rate_compen * FF_compen;
@@ -601,9 +626,9 @@ class ApplyStimulusCurrentSI
 
     void update(size_t index_i, Real dt)
     {
-      all_species_[voltage_][index_i] =  pos_[index_i][2] * pos_[index_i][2];
+      /*all_species_[voltage_][index_i] =  pos_[index_i][0] * pos_[index_i][0];*/
        
-     /*if (-30.0 * length_scale <= pos_[index_i][0] && pos_[index_i][0] <= -15.0 * length_scale)
+     if (-30.0 * length_scale <= pos_[index_i][0] && pos_[index_i][0] <= -15.0 * length_scale)
         {
             if (-2.0 * length_scale <= pos_[index_i][1] && pos_[index_i][1] <= 0.0)
             {
@@ -612,7 +637,7 @@ class ApplyStimulusCurrentSI
                     all_species_[voltage_][index_i] = 0.92;
                 }
             }
-        }*/
+        }
     };
 };
 
@@ -676,9 +701,8 @@ int main(int ac, char *av[])
     SPHSystem sph_system(system_domain_bounds, dp_0);
     sph_system.setRunParticleRelaxation(false); // Tag for run particle relaxation for body-fitted distribution
     sph_system.setReloadParticles(true);       // Tag for computation with save particles distribution
-#ifdef BOOST_AVAILABLE
+
     sph_system.handleCommandlineOptions(ac, av); // handle command line arguments
-#endif
     IOEnvironment io_environment(sph_system);
     //----------------------------------------------------------------------
     //	SPH Particle relaxation section
@@ -812,10 +836,13 @@ int main(int ac, char *av[])
     physiology_heart.addBodyStateForRecording<Vec3d>("CompensationDw");
     physiology_heart.addBodyStateForRecording<Vec3d>("CompensationRib");
     physiology_heart.addBodyStateForRecording<Real>("VoltageChangeRate");
-      physiology_heart.addBodyStateForRecording<Mat3d>("LocalTransformedDiffusivity");
-      physiology_heart.addBodyStateForRecording<Mat3d>("DecomposedTransformTensor");
+    physiology_heart.addBodyStateForRecording<Real>("Distance_");
+    physiology_heart.addBodyStateForRecording<Real>("dimension_check_");
+   // physiology_heart.addBodyStateForRecording<Mat3d>("LocalTransformedDiffusivity");
+   // physiology_heart.addBodyStateForRecording<Mat3d>("DecomposedTransformTensor");
+    physiology_heart.addBodyStateForRecording<Mat3d>("KernelCorrectionMatrix");
   
-    physiology_heart.addBodyStateForRecording<Real>("Gradient");
+    //physiology_heart.addBodyStateForRecording<Real>("Gradient");
 
     // Solvers for ODE system.
     electro_physiology::ElectroPhysiologyReactionRelaxationForward reaction_relaxation_forward(physiology_heart);
@@ -958,8 +985,7 @@ int main(int ac, char *av[])
              write_displacement.writeToFile(ite);
         }
         TickCount t2 = TickCount::now();
-        interpolation_particle_position.exec();
-       // write_states.writeToFile();
+        write_states.writeToFile();
         TickCount t3 = TickCount::now();
         interval += t3 - t2;
     }

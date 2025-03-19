@@ -14,7 +14,7 @@ Real H = 0.4;
 int resolution(20);
 
 int z_num = 20;
-Real ratio_ = 1.0;
+Real ratio_ = 4.0;
 Real resolution_ref = H / z_num;
 Real resolution_ref_large = ratio_ * resolution_ref;
 int x_num = L / resolution_ref_large;
@@ -381,7 +381,7 @@ class LaplacianBodyRelaxation : public LocalDynamics, public LaplacianSolidDataI
             }
           
         } 
-     //  phi_[index_i] = 1.0 * pos_[index_i][0] * pos_[index_i][0];
+       phi_[index_i] = 1.0 * pos_[index_i][0] * pos_[index_i][0];
        
     };
 };

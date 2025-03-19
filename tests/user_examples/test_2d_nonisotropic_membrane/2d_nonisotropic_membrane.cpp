@@ -16,12 +16,26 @@ using namespace SPH;
 //------------------------------------------------------------------------------
 // global parameters for the case
 //------------------------------------------------------------------------------
-Real PL = 5.0e-3;  // membrane length
-Real PH = 0.125e-3; // membrane thickenss
-Real BC = PL * 0.15;
+Real PL = 5.0e-3;   //10.0e-3;  // membrane length, 10
+Real PH = 0.125e-3; //0.125e-3; // membrane thickness
 
-int y_num = 6;
-Real ratio_ = 6.0;
+
+Real rho_0 = 2.0e3; //2.0e3;   
+Real poisson = 0.26316;
+Real Youngs_modulus = 8.242e6; 
+Real physical_viscosity = 5000.0;
+
+Real diffusivity_constant_ = 1.0e-10; // 1.0e-10;
+Real fulid_initial_density_ = 1.0e3; //1.0e3;
+Real water_pressure_constant_ = 3.0e6;
+Real saturation = 0.4;
+
+Real refer_density_energy = 0.5 * water_pressure_constant_;
+
+
+Real BC = PL * 0.15;
+int y_num = 16;
+Real ratio_ = 1.0;
 // reference particle spacing
 Real resolution_ref = PH / y_num;
 Real resolution_ref_large = ratio_ * resolution_ref;
@@ -39,17 +53,7 @@ BoundingBox system_domain_bounds(Vec2d(-PL, -PL),
 //----------------------------------------------------------------------
 //	Material properties of the fluid.
 //----------------------------------------------------------------------
-Real rho_0 = 2.0e3;   
-Real poisson = 0.26316;
-Real Youngs_modulus = 8.242e6;
-Real physical_viscosity = 400.0;
 
-Real diffusivity_constant_ = 1.0e-10;
-Real fulid_initial_density_ = 1.0e3;
-Real water_pressure_constant_ = 3.0e6;
-Real saturation = 0.4;
-
-Real refer_density_energy = 0.5 * water_pressure_constant_;
 
 //----------------------------------------------------------------------
 //	Geometric shapes used in the system.
@@ -278,14 +282,83 @@ class NonisotropicKernelCorrectionMatrixComplex : public LocalDynamics, public G
 		B_[index_i] = inverse;	
 	}
 };
+/*
+class 2DPorousMediaParticles  : public PorousMediaParticles
+{
+public:
+    2DPorousMediaParticles(SPHBody &body, PorousMediaSolid *porous_solid): 
+               PorousMediaParticles(body, porous_solid) 
+    {   registerVariable(A1_, "FirstOrderCorrectionVectorA1", [&](size_t i) -> Vec2d { return Eps * Vec2d::Identity(); });
+        registerVariable(A2_, "FirstOrderCorrectionVectorA2", [&](size_t i) -> Vec2d { return Eps * Vec2d::Identity(); });
+        registerVariable(A3_, "FirstOrderCorrectionVectorA3", [&](size_t i) -> Vec2d { return Eps * Vec2d::Identity(); });
+	};  
 
-class NonisotropicSaturationRelaxationInPorousMedia  : public LocalDynamics, public  multi_species_continuum::PorousMediaSolidDataComplex
+	PorousMediaSolid &porous_solid_;
+    StdLargeVec<Vec2d> A1_;
+    StdLargeVec<Vec2d> A2_;
+    StdLargeVec<Vec2d> A3_;
+	virtual ~2DPorousMediaParticles() {};
+
+};*/
+
+typedef DataDelegateComplex<multi_species_continuum::PorousMediaParticles, BaseParticles> PorousMediaSolidDataComplex;
+
+/*
+class NonisotropicKernelCorrectionMatrixComplexAC : public LocalDynamics, public PorousMediaSolidDataComplex
+{
+  public:
+    NonisotropicKernelCorrectionMatrixComplexAC(ComplexRelation &complex_relation): 
+                LocalDynamics(complex_relation.getInnerRelation().getSPHBody()), PorousMediaSolidDataComplex(complex_relation),
+                 B_(particles_->B_), A1_(particles_->A1_), A2_(particles_->A2_), A3_(particles_->A3_) {};
+
+    virtual ~NonisotropicKernelCorrectionMatrixComplexAC(){};
+
+  protected:
+    StdLargeVec<Mat2d> &B_;
+    StdLargeVec<Vec2d> &A1_,&A2_,&A3_;
+
+    void initialization(size_t index_i, Real dt = 0.0)
+    {
+        Neighborhood &inner_neighborhood = inner_configuration_[index_i];
+        for (size_t n = 0; n != inner_neighborhood.current_size_; ++n) // this is ik
+        {
+            Vec2d gradW_ikV_k = inner_neighborhood.dW_ijV_j_[n] * inner_neighborhood.e_ij_[n];
+            Vec2d r_ik = -inner_neighborhood.r_ij_vector_[n];
+
+            A1_[index_i] += r_ik[0] * r_ik[0] * (B_[index_i].transpose() * gradW_ikV_k);
+            A2_[index_i] += r_ik[1] * r_ik[1] * (B_[index_i].transpose() * gradW_ikV_k);
+            A3_[index_i] += r_ik[0] * r_ik[1] * (B_[index_i].transpose() * gradW_ikV_k);
+        }
+    };
+
+    void interaction(size_t index_i, Real dt = 0.0)
+    {
+         for (size_t k = 0; k < contact_configuration_.size(); ++k)
+        {
+            Neighborhood &contact_neighborhood = (*contact_configuration_[k])[index_i];
+            for (size_t n = 0; n != contact_neighborhood.current_size_; ++n)
+            {
+                Vec2d r_ik = -contact_neighborhood.r_ij_vector_[n];
+                Vec2d gradW_ikV_k = contact_neighborhood.dW_ijV_j_[n] * contact_neighborhood.e_ij_[n];
+
+                A1_[index_i] += r_ik[0] * r_ik[0] * (B_[index_i].transpose() * gradW_ikV_k);
+                A2_[index_i] += r_ik[1] * r_ik[1] * (B_[index_i].transpose() * gradW_ikV_k);
+                A3_[index_i] += r_ik[0] * r_ik[1] * (B_[index_i].transpose() * gradW_ikV_k);
+            }
+        }
+
+    };
+
+	void update(size_t index_i, Real dt = 0.0) {};
+};
+*/
+
+class NonisotropicSaturationRelaxationInPorousMedia  : public LocalDynamics, public   PorousMediaSolidDataComplex
 {
 
- public:
     public:
     NonisotropicSaturationRelaxationInPorousMedia(ComplexRelation &complex_relation): 
-                LocalDynamics(complex_relation.getInnerRelation().getSPHBody()),  multi_species_continuum::PorousMediaSolidDataComplex(complex_relation),  
+                LocalDynamics(complex_relation.getInnerRelation().getSPHBody()),  PorousMediaSolidDataComplex(complex_relation),  
 		   pos_(particles_->pos_), B_(particles_->B_),
 		    Vol_update_(particles_->Vol_update_), fluid_saturation_(particles_->fluid_saturation_),
 			total_mass_(particles_->total_mass_), fluid_mass_(particles_->fluid_mass_),
@@ -353,7 +426,7 @@ class NonisotropicSaturationRelaxationInPorousMedia  : public LocalDynamics, pub
             size_t index_k = inner_neighborhood.j_[n];
             Vec2d gradW_ikV_k = inner_neighborhood.dW_ijV_j_[n] * inner_neighborhood.e_ij_[n];
 
-            E_rate += (fluid_saturation_[index_k] - fluid_saturation_[index_i]) 
+            E_rate += (fluid_saturation_[index_k] *fluid_saturation_[index_k] - fluid_saturation_[index_i]*fluid_saturation_[index_i]) 
                    * (B_[index_i].transpose() * gradW_ikV_k); // HOW TO DEFINE IT???
         }
         E_[index_i] = E_rate;
@@ -370,16 +443,20 @@ class NonisotropicSaturationRelaxationInPorousMedia  : public LocalDynamics, pub
             Vec3d S_ = Vec3d(r_ij[0] * r_ij[0], r_ij[1] * r_ij[1], r_ij[0] * r_ij[1]);
             H_rate = r_ij.dot(B_[index_i].transpose() * gradW_ijV_j) / pow(r_ij.norm(), 4.0);
 			 
-            Real FF_ =  (fluid_saturation_[index_j] - fluid_saturation_[index_i] - r_ij.dot(E_[index_i]));
+            Real FF_ =  (fluid_saturation_[index_j] *fluid_saturation_[index_j]- fluid_saturation_[index_i] *fluid_saturation_[index_i] - r_ij.dot(E_[index_i]));
             G_rate += S_ *H_rate * FF_;
 
             fluid_saturation_gradient -= (fluid_saturation_[index_i] - fluid_saturation_[index_j]) * gradW_ijV_j;
 											
              //TO DO
             Vec3d C_ = Vec3d::Zero();
-            C_[0] = (r_ij[0] * r_ij[0]);
-            C_[1] = (r_ij[1] * r_ij[1]);
-            C_[2] = (r_ij[0] * r_ij[1]);
+               /* C_[0] = (r_ij[0] * r_ij[0]- r_ij.dot(A1_[index_i]));
+                C_[1] = (r_ij[1] * r_ij[1]- r_ij.dot(A2_[index_i]));
+                C_[2] = (r_ij[0] * r_ij[1]- r_ij.dot(A3_[index_i]));*/ 
+               
+                C_[0] = (r_ij[0] * r_ij[0]);
+                C_[1] = (r_ij[1] * r_ij[1]);
+                C_[2] = (r_ij[0] * r_ij[1]);
 			 
             SC_rate += S_ *H_rate* C_.transpose();   
 
@@ -413,9 +490,14 @@ class NonisotropicSaturationRelaxationInPorousMedia  : public LocalDynamics, pub
 		
                 //TO DO
                  Vec3d C_ = Vec3d::Zero();
-                 C_[0] = (r_ij[0] * r_ij[0]);
-                 C_[1] = (r_ij[1] * r_ij[1]);
-                 C_[2] = (r_ij[0] * r_ij[1]);
+              /* C_[0] = (r_ij[0] * r_ij[0]- r_ij.dot(A1_[index_i]));
+                C_[1] = (r_ij[1] * r_ij[1]- r_ij.dot(A2_[index_i]));
+                C_[2] = (r_ij[0] * r_ij[1]- r_ij.dot(A3_[index_i]));*/ 
+               
+                C_[0] = (r_ij[0] * r_ij[0]);
+                C_[1] = (r_ij[1] * r_ij[1]);
+                C_[2] = (r_ij[0] * r_ij[1]);
+          
 		
                 SC_rate_contact += S_ * H_rate_contact * C_.transpose();
                 G_rate_contact += S_ * H_rate_contact * FF_;
@@ -438,7 +520,7 @@ class NonisotropicSaturationRelaxationInPorousMedia  : public LocalDynamics, pub
    void update(size_t index_i, Real dt = 0.0)
     {
       fluid_mass_[index_i] += dfluid_mass_dt_[index_i] * dt;
-	  fluid_mass_[index_i] =  0.995 * fluid_mass_[index_i];
+	 // fluid_mass_[index_i] =  0.995 * fluid_mass_[index_i];
 		 // update total mass
 	   total_mass_[index_i] = rho0_ * Vol_[index_i] + fluid_mass_[index_i];
 	   //  update fluid saturation 
@@ -466,6 +548,58 @@ class TemperatureObserverParticleGenerator : public ObserverParticleGenerator
     }
 };
 
+
+template <typename VariableType>
+	class PositionObservedQuantityRecording : public BodyStatesRecording,
+									  public ObservingAQuantity<VariableType>
+	{
+	protected:
+		SPHBody &observer_;
+		PltEngine plt_engine_;
+		BaseParticles &base_particles_;
+		std::string dynamics_range_name_;
+		const std::string quantity_name_;
+		std::string filefullpath_output_;
+
+	public:
+		VariableType type_indicator_; /*< this is an indicator to identify the variable type. */
+
+	public:
+		PositionObservedQuantityRecording(const std::string &quantity_name, IOEnvironment &io_environment,
+								  BaseContactRelation &contact_relation)
+			: BodyStatesRecording(io_environment, contact_relation.getSPHBody()),
+			  ObservingAQuantity<VariableType>(contact_relation, quantity_name),
+			  observer_(contact_relation.getSPHBody()), plt_engine_(),
+			  base_particles_(observer_.getBaseParticles()), 
+			  dynamics_range_name_(contact_relation.getSPHBody().getName()),
+			  quantity_name_(quantity_name)	{};
+		
+		virtual ~PositionObservedQuantityRecording(){};
+
+		virtual void writeWithFileName(const std::string &sequence) override
+		{
+			filefullpath_output_ = io_environment_.output_folder_ + "/"  + "_" + quantity_name_ + ".dat";
+			this->exec();
+			std::ofstream out_file(filefullpath_output_.c_str(), std::ios::app);
+			out_file << "run_time"
+					 << "   " << "pos[0]" << "   "<< "pos[1]" << "   " << "\n"; 
+
+			for (size_t i = 0; i != base_particles_.total_real_particles_; ++i)
+			{	out_file << GlobalStaticVariables::physical_time_ << "   ";
+				plt_engine_.writeAQuantity(out_file, (*this->interpolated_quantities_)[i][0]);
+				out_file  << "   " ;
+				plt_engine_.writeAQuantity(out_file, (*this->interpolated_quantities_)[i][1]);
+				out_file << "\n";
+			}
+			out_file << "\n";
+			out_file.close();
+		};
+
+		StdLargeVec<VariableType> *getObservedQuantity()
+		{
+			return this->interpolated_quantities_;
+		}
+	};
 //------------------------------------------------------------------------------
 // the main program
 //------------------------------------------------------------------------------
@@ -557,6 +691,9 @@ int main(int ac, char *av[])
     ObservedQuantityRecording<Vecd>
         write_beam_tip_position("Position", io_environment, beam_observer_contact);
 
+    PositionObservedQuantityRecording<Vecd>
+        write_beam_tip_position_time("Position", io_environment, beam_observer_contact);
+
     //----------------------------------------------------------------------
     //	Setup computing and initial conditions.
     //----------------------------------------------------------------------
@@ -575,7 +712,7 @@ int main(int ac, char *av[])
     //----------------------------------------------------------------------
 
     Real End_Time = 3000;
-    Real setup_saturation_time_ = End_Time * 0.15;
+    Real setup_saturation_time_ = End_Time * 0.0;
 
     // time step size for output file
     Real D_Time = End_Time / 100.0;
@@ -589,6 +726,8 @@ int main(int ac, char *av[])
     //-----------------------------------------------------------------------------
     write_beam_states.writeToFile(0);
     write_beam_tip_position.writeToFile(0);
+    write_beam_tip_position_time.writeToFile(0);
+    
     write_beam_saturation.writeToFile(0);
     // computation loop starts
     while (GlobalStaticVariables::physical_time_ < End_Time)
@@ -640,12 +779,18 @@ int main(int ac, char *av[])
             std::cout << "One Diffusion finishes   "
                       << "total_kinetic_energy =  " << total_kinetic_energy
                       << "     stress_ite = " << stress_ite << std::endl;
+       
+             /*    ite++;
+                integration_time += Dt;
+                GlobalStaticVariables::physical_time_ += Dt;*/
+             
         }
 
         TickCount t2 = TickCount::now();
-        write_beam_states.writeToFile(ite);
-        write_beam_tip_position.writeToFile(ite);
-       write_beam_saturation.writeToFile(ite);
+        write_beam_states.writeToFile( );
+        write_beam_tip_position.writeToFile();
+        write_beam_tip_position_time.writeToFile( );
+        write_beam_saturation.writeToFile( );
         TickCount t3 = TickCount::now();
         interval += t3 - t2;
     }
